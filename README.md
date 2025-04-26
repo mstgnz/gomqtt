@@ -10,21 +10,21 @@ Bu proje sayesinde:
 
 - Cihazlar arası iletişim hızlı, hafif ve güvenli şekilde gerçekleşir.
 - Geliştiriciler, kolayca plugin ekleyerek broker'ı genişletebilir.
-- Sistem yönetimi için bir REST API ve basit bir Admin Panel sunulacaktır.
+- Sistem yönetimi için bir REST API (go-chi) ve entegre bir Admin Panel (Go+HTMX+templ) sunulacaktır.
 
 ---
 
 ## 🏗️ Hedef Özellikler
 
-| Özellik                          | Açıklama                                                     |
-| :------------------------------- | :----------------------------------------------------------- |
-| MQTT Broker                      | Temel publish/subscribe mekanizması                          |
-| Plug-in Sistemi                  | Kolayca event-based genişletme yapılabilecek yapı            |
-| REST API                         | Cihaz yönetimi, mesaj geçmişi, online/offline kontrolü       |
-| Custom Authentication            | API Key / JWT bazlı kimlik doğrulama                         |
-| Access Control                   | Cihaz bazlı topic yetkilendirme                              |
-| PostgreSQL Integration           | Mesaj geçmişi ve cihaz kayıtları veritabanında saklama       |
-| Monitoring Dashboard (Opsiyonel) | Bağlı client'lar, mesaj istatistikleri, sistem durumu izleme |
+| Özellik                | Açıklama                                                   |
+| :--------------------- | :--------------------------------------------------------- |
+| MQTT Broker            | Temel publish/subscribe mekanizması                        |
+| Plug-in Sistemi        | Kolayca event-based genişletme yapılabilecek yapı          |
+| REST API               | Cihaz yönetimi, mesaj geçmişi, online/offline kontrolü     |
+| Custom Authentication  | API Key - JWT bazlı kimlik doğrulama                       |
+| Access Control         | Cihaz bazlı topic yetkilendirme                            |
+| PostgreSQL Integration | Mesaj geçmişi ve cihaz kayıtları veritabanında saklama     |
+| Monitoring Dashboard   | Go+HTMX+templ ile bağlı client'lar ve sistem durumu izleme |
 
 ---
 
@@ -38,8 +38,7 @@ Bu proje sayesinde:
 
 ### 2. Kimlik Doğrulama Sistemi
 
-- [ ] Basit kullanıcı-parola ile auth
-- [ ] JWT destekli auth opsiyonu
+- [ ] JWT destekli auth
 
 ### 3. Mesaj Routing Sistemi
 
@@ -63,10 +62,11 @@ Bu proje sayesinde:
 - [ ] Publish/Subscribe olaylarına hook yazabilme altyapısı
 - [ ] Basit örnek plugin (Webhook tetikleme)
 
-### 7. Admin Panel (Opsiyonel, İleri Seviye)
+### 7. Admin Panel (Go+HTMX+templ)
 
-- [ ] Web UI'da client listesi, mesaj grafikleri
-- [ ] WebSocket ile canlı veri akışı
+- [ ] Client listesi, mesaj grafikleri ve sistem durumu izleme
+- [ ] HTMX ile dinamik ve hızlı UI deneyimi
+- [ ] templ ile Go entegrasyonu
 
 ### 8. Deployment
 
@@ -79,8 +79,8 @@ Bu proje sayesinde:
 
 | Bileşen        | Minimum Gereksinim                         |
 | :------------- | :----------------------------------------- |
-| Go             | 1.20+                                      |
-| PostgreSQL     | 13+                                        |
+| Go             | 1.24+                                      |
+| PostgreSQL     | 16+                                        |
 | Linux Server   | Ubuntu 22.04 önerilir                      |
 | MQTT Clientlar | MQTT v3.1.1 veya v5 destekli tüm clientlar |
 
@@ -100,6 +100,7 @@ sudo apt install postgresql postgresql-contrib
 go get github.com/eclipse/paho.mqtt.golang
 go get github.com/jackc/pgx/v5
 go get github.com/go-chi/chi/v5
+go get github.com/a-h/templ
 ```
 
 ---
@@ -176,13 +177,3 @@ MIT License (özgür kullanım)
 
 Bu proje **gerçek bir production-ready** broker olma potansiyeline sahiptir.  
 İlk versiyonda hafif tutulacak, sonra ileri seviye optimizasyonlar (Zero-Copy IO, event-driven networking) yapılabilir.
-
----
-
-📜  
-Bu README ilk etap için çok sağlam bir temel olur.  
-İstersen buna göre bir **repo oluşturup**, hemen dosya yapısına başlayabiliriz.
-
-👉 Başlayalım mı?  
-(Hemen sana `cmd/broker`, `pkg/mqtt`, `internal/api` gibi dizin yapısını da çıkarırım istersen.) 🚀  
-Hazır mısın?
