@@ -23,6 +23,12 @@ type Client struct {
 	// State management
 	IsConnected bool
 	LastSeen    time.Time
+
+	// Will message (Last Will and Testament)
+	WillTopic   string
+	WillMessage []byte
+	WillQoS     byte
+	WillRetain  bool
 }
 
 // NewClient creates a new MQTT client
@@ -61,5 +67,15 @@ func (c *Client) Disconnect() {
 	if c.IsConnected {
 		c.Conn.Close()
 		c.IsConnected = false
+	}
+}
+
+// ProcessWill publishes the client's will message if one is set
+func (c *Client) ProcessWill() {
+	// This will be called when a connection is closed unexpectedly
+	if c.WillTopic != "" && len(c.WillMessage) > 0 {
+		// The actual publishing would be handled by the Server
+		// Just log for now
+		// TODO: Implement actual will message publishing
 	}
 }
