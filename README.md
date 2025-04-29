@@ -32,46 +32,46 @@ Bu proje sayesinde:
 
 ### 1. Temel Broker Altyapısı
 
-- [ ] TCP Server kur (port: 1883 default)
-- [ ] MQTT v3.1.1 / v5 protokol parser yaz
-- [ ] Connect, Subscribe, Publish, Ping, Disconnect paketleri işle
+- [x] TCP Server kur (port: 1883 default)
+- [x] MQTT v3.1.1 / v5 protokol parser yaz
+- [x] Connect, Subscribe, Publish, Ping, Disconnect paketleri işle
 
 ### 2. Kimlik Doğrulama Sistemi
 
-- [ ] JWT destekli auth
+- [x] JWT destekli auth
 
 ### 3. Mesaj Routing Sistemi
 
-- [ ] Topic bazlı mesaj yönlendirme
-- [ ] QoS 0 ve QoS 1 desteği
+- [x] Topic bazlı mesaj yönlendirme
+- [x] QoS 0 ve QoS 1 desteği
 
 ### 4. REST API Sunucusu
 
-- [ ] Client listesi (bağlı cihazlar)
-- [ ] Publish geçmişi listeleme
-- [ ] Online / Offline cihaz sorgulama
+- [x] Client listesi (bağlı cihazlar)
+- [x] Publish geçmişi listeleme
+- [x] Online / Offline cihaz sorgulama
 
 ### 5. Veritabanı Bağlantısı
 
-- [ ] PostgreSQL bağlantısı kur
-- [ ] Publish edilen mesajları kaydet
-- [ ] Client bilgilerini sakla
+- [x] PostgreSQL bağlantısı kur
+- [x] Publish edilen mesajları kaydet
+- [x] Client bilgilerini sakla
 
 ### 6. Plugin Sistemi
 
-- [ ] Publish/Subscribe olaylarına hook yazabilme altyapısı
-- [ ] Basit örnek plugin (Webhook tetikleme)
+- [x] Publish/Subscribe olaylarına hook yazabilme altyapısı
+- [x] Basit örnek plugin (Webhook tetikleme)
 
 ### 7. Admin Panel (Go+HTMX+templ)
 
-- [ ] Client listesi, mesaj grafikleri ve sistem durumu izleme
-- [ ] HTMX ile dinamik ve hızlı UI deneyimi
-- [ ] templ ile Go entegrasyonu
+- [x] Client listesi, mesaj grafikleri ve sistem durumu izleme
+- [x] HTMX ile dinamik ve hızlı UI deneyimi
+- [x] templ ile Go entegrasyonu
 
 ### 8. Deployment
 
-- [ ] Dockerfile ve docker-compose.yml dosyası
-- [ ] Minimal konfigürasyonla ayağa kaldırılabilir yapı
+- [x] Dockerfile ve docker-compose.yml dosyası
+- [x] Minimal konfigürasyonla ayağa kaldırılabilir yapı
 
 ---
 

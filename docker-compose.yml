@@ -1,0 +1,46 @@
+services:
+  gomqtt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "1883:1883" # MQTT
+      - "8080:8080" # REST API
+      - "8081:8081" # Admin Panel
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=gomqtt
+      - DB_SSLMODE=disable
+      - JWT_SECRET=change-me-in-production
+    volumes:
+      - ./config:/app/config
+      - ./plugins:/app/plugins
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - gomqtt-network
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=gomqtt
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - gomqtt-network
+
+networks:
+  gomqtt-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

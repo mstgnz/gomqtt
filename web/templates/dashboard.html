@@ -1,0 +1,141 @@
+{{ define "content" }}
+<div class="row mt-4">
+    <div class="col-12">
+        <h1 class="mb-4">Dashboard</h1>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Active Clients Card -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Active Clients</h5>
+                <h2 class="card-text" hx-get="/api/stats/clients" hx-trigger="load, every 10s" hx-swap="innerHTML">
+                    {{ if .Data }}{{ .Data.ActiveClients }}{{ else }}0{{ end }}
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <!-- Messages Card -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Total Messages</h5>
+                <h2 class="card-text" hx-get="/api/stats/messages" hx-trigger="load, every 10s" hx-swap="innerHTML">
+                    {{ if .Data }}{{ .Data.MessageCount }}{{ else }}0{{ end }}
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <!-- Uptime Card -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Server Uptime</h5>
+                <h2 class="card-text" hx-get="/api/stats/uptime" hx-trigger="load, every 60s" hx-swap="innerHTML">
+                    {{ if .Data }}{{ .Data.ServerUptime }}{{ else }}0h 0m 0s{{ end }}
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Card -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Server Status</h5>
+                <div class="d-flex align-items-center">
+                    <div class="bg-success rounded-circle me-2" style="width: 12px; height: 12px;"></div>
+                    <h2 class="card-text mb-0">Online</h2>
+                </div>
+                <small>Since: {{ if .Data }}{{ .Data.ConnectedSince }}{{ else }}Not connected{{ end }}</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- Popular Topics -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Popular Topics</h5>
+            </div>
+            <div class="card-body">
+                <table class="table" hx-get="/api/stats/topics" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                    <thead>
+                        <tr>
+                            <th>Topic</th>
+                            <th>Messages</th>
+                            <th>Clients</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ if and .Data .Data.TopTopics }}
+                            {{ range .Data.TopTopics }}
+                            <tr>
+                                <td>{{ .Topic }}</td>
+                                <td>{{ .Messages }}</td>
+                                <td>{{ .Clients }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr>
+                                <td colspan="3" class="text-center">No topics yet</td>
+                            </tr>
+                            {{ end }}
+                        {{ else }}
+                        <tr>
+                            <td colspan="3" class="text-center">No topics yet</td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Messages -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Recent Messages</h5>
+            </div>
+            <div class="card-body">
+                <table class="table" hx-get="/api/messages/recent" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                    <thead>
+                        <tr>
+                            <th>Topic</th>
+                            <th>Client ID</th>
+                            <th>Time</th>
+                            <th>Size</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ if and .Data .Data.RecentMessages }}
+                            {{ range .Data.RecentMessages }}
+                            <tr>
+                                <td>{{ .Topic }}</td>
+                                <td>{{ .ClientID }}</td>
+                                <td>{{ .Timestamp }}</td>
+                                <td>{{ .Size }} B</td>
+                            </tr>
+                            {{ else }}
+                            <tr>
+                                <td colspan="4" class="text-center">No messages yet</td>
+                            </tr>
+                            {{ end }}
+                        {{ else }}
+                        <tr>
+                            <td colspan="4" class="text-center">No messages yet</td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }} 

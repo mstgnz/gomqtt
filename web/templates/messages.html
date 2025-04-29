@@ -1,0 +1,83 @@
+{{ define "content" }}
+<div class="row mt-4">
+    <div class="col-12">
+        <h1 class="mb-4">Message History</h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Message List</h5>
+                <div class="d-flex">
+                    <input type="text" class="form-control form-control-sm me-2" placeholder="Filter by Topic" 
+                           hx-post="/messages/filter" 
+                           hx-trigger="keyup changed delay:500ms" 
+                           hx-target="#message-list"
+                           name="topic">
+                    <select class="form-select form-select-sm me-2" 
+                            hx-post="/messages/filter" 
+                            hx-trigger="change" 
+                            hx-target="#message-list"
+                            name="timeRange">
+                        <option value="1h">Last 1 hour</option>
+                        <option value="24h" selected>Last 24 hours</option>
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d">Last 30 days</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary" 
+                            hx-get="/api/messages" 
+                            hx-target="#message-list">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Topic</th>
+                            <th>Client ID</th>
+                            <th>QoS</th>
+                            <th>Retained</th>
+                            <th>Size</th>
+                            <th>Timestamp</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="message-list" hx-get="/api/messages" hx-trigger="load" hx-swap="innerHTML">
+                        <tr>
+                            <td colspan="8" class="text-center">Loading messages...</td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <nav aria-label="Message pagination">
+                    <ul class="pagination justify-content-center" id="pagination">
+                        <!-- Pagination will be loaded via HTMX -->
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Message Details Modal -->
+<div class="modal fade" id="messageModal" tabindex="-1" aria-labelledby="messageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" id="message-detail-content">
+            <!-- Content will be loaded via HTMX -->
+        </div>
+    </div>
+</div>
+
+<script>
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'message-detail-content') {
+            new bootstrap.Modal(document.getElementById('messageModal')).show();
+        }
+    });
+</script>
+{{ end }} 

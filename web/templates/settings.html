@@ -1,0 +1,155 @@
+{{ define "content" }}
+<div class="row mt-4">
+    <div class="col-12">
+        <h1 class="mb-4">Broker Settings</h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" id="settings-tabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab" aria-controls="general" aria-selected="true">
+                            General
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security" type="button" role="tab" aria-controls="security" aria-selected="false">
+                            Security
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="plugins-tab" data-bs-toggle="tab" data-bs-target="#plugins" type="button" role="tab" aria-controls="plugins" aria-selected="false">
+                            Plugins
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab" aria-controls="logs" aria-selected="false">
+                            Logs
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content" id="settings-tab-content">
+                    <!-- General Settings -->
+                    <div class="tab-pane fade show active" id="general" role="tabpanel" aria-labelledby="general-tab">
+                        <form hx-post="/api/settings/general" hx-swap="none">
+                            <div class="mb-3">
+                                <label for="mqtt-host" class="form-label">MQTT Host</label>
+                                <input type="text" class="form-control" id="mqtt-host" name="mqtt.host" value="0.0.0.0">
+                            </div>
+                            <div class="mb-3">
+                                <label for="mqtt-port" class="form-label">MQTT Port</label>
+                                <input type="number" class="form-control" id="mqtt-port" name="mqtt.port" value="1883">
+                            </div>
+                            <div class="mb-3">
+                                <label for="max-connections" class="form-label">Max Connections</label>
+                                <input type="number" class="form-control" id="max-connections" name="mqtt.max_connections" value="1000">
+                            </div>
+                            <div class="mb-3">
+                                <label for="max-message-size" class="form-label">Max Message Size (bytes)</label>
+                                <input type="number" class="form-control" id="max-message-size" name="mqtt.max_message_size" value="16384">
+                            </div>
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="retain-available" name="mqtt.retain_available" checked>
+                                <label class="form-check-label" for="retain-available">Allow Retained Messages</label>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save General Settings</button>
+                        </form>
+                    </div>
+                    
+                    <!-- Security Settings -->
+                    <div class="tab-pane fade" id="security" role="tabpanel" aria-labelledby="security-tab">
+                        <form hx-post="/api/settings/security" hx-swap="none">
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="allow-anonymous" name="mqtt.allow_anonymous">
+                                <label class="form-check-label" for="allow-anonymous">Allow Anonymous Connections</label>
+                            </div>
+                            <div class="mb-3">
+                                <label for="jwt-secret" class="form-label">JWT Secret</label>
+                                <input type="password" class="form-control" id="jwt-secret" name="auth.jwt_secret" value="********">
+                            </div>
+                            <div class="mb-3">
+                                <label for="jwt-expires" class="form-label">JWT Token Expiration (hours)</label>
+                                <input type="number" class="form-control" id="jwt-expires" name="auth.jwt_expires" value="24">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Security Settings</button>
+                        </form>
+                    </div>
+                    
+                    <!-- Plugins Settings -->
+                    <div class="tab-pane fade" id="plugins" role="tabpanel" aria-labelledby="plugins-tab">
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="plugins-enabled" checked>
+                            <label class="form-check-label" for="plugins-enabled">Enable Plugin System</label>
+                        </div>
+                        
+                        <h5 class="mt-4">Installed Plugins</h5>
+                        <table class="table" hx-get="/api/plugins" hx-trigger="load" hx-swap="innerHTML">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Description</th>
+                                    <th>Version</th>
+                                    <th>Author</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>example</td>
+                                    <td>Example plugin that logs events</td>
+                                    <td>0.1.0</td>
+                                    <td>GoMQTT Team</td>
+                                    <td><span class="badge bg-success">Enabled</span></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-danger">Disable</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Logs -->
+                    <div class="tab-pane fade" id="logs" role="tabpanel" aria-labelledby="logs-tab">
+                        <div class="mb-3">
+                            <label for="log-level" class="form-label">Log Level</label>
+                            <select class="form-select" id="log-level" name="logging.level">
+                                <option value="debug">Debug</option>
+                                <option value="info" selected>Info</option>
+                                <option value="warn">Warning</option>
+                                <option value="error">Error</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="log-format" class="form-label">Log Format</label>
+                            <select class="form-select" id="log-format" name="logging.format">
+                                <option value="text" selected>Text</option>
+                                <option value="json">JSON</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="log-file" class="form-label">Log File</label>
+                            <input type="text" class="form-control" id="log-file" name="logging.file" placeholder="Leave empty for stdout">
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" hx-post="/api/settings/logging" hx-swap="none">Save Logging Settings</button>
+                        
+                        <h5 class="mt-4">Recent Logs</h5>
+                        <div class="bg-dark text-light p-3 rounded" style="max-height: 300px; overflow-y: auto;" 
+                             hx-get="/api/logs" hx-trigger="load, every:10s" hx-swap="innerHTML">
+                            <pre>Loading logs...</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }} 

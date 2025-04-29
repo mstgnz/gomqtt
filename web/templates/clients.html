@@ -1,0 +1,59 @@
+{{ define "content" }}
+<div class="row mt-4">
+    <div class="col-12">
+        <h1 class="mb-4">Connected Clients</h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Client List</h5>
+                <div>
+                    <input type="text" class="form-control form-control-sm" placeholder="Search Clients..." 
+                           hx-post="/clients/search" 
+                           hx-trigger="keyup changed delay:500ms" 
+                           hx-target="#client-list">
+                </div>
+            </div>
+            <div class="card-body">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Client ID</th>
+                            <th>Username</th>
+                            <th>Status</th>
+                            <th>Connected Since</th>
+                            <th>Last Seen</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="client-list" hx-get="/api/clients" hx-trigger="load, every 10s" hx-swap="innerHTML">
+                        <tr>
+                            <td colspan="6" class="text-center">Loading clients...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Client Details Modal -->
+<div class="modal fade" id="clientModal" tabindex="-1" aria-labelledby="clientModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" id="client-detail-content">
+            <!-- Content will be loaded via HTMX -->
+        </div>
+    </div>
+</div>
+
+<script>
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'client-detail-content') {
+            new bootstrap.Modal(document.getElementById('clientModal')).show();
+        }
+    });
+</script>
+{{ end }} 

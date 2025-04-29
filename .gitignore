@@ -1,3 +1,34 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+gomqtt
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go workspace file
+go.work
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local config files
+config.local.json
+
+# Logs
+*.log
+
+# Generated
+web/static/dist/
+
 .env
-.idea
 .DS_Store
