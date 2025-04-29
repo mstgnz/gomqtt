@@ -30,6 +30,12 @@ type Server struct {
 	// Retained messages
 	retainedMessages      map[string]RetainedMessage
 	retainedMessagesMutex sync.RWMutex
+
+	// QoS management
+	inflightMessages    map[string]map[uint16]*InflightMessage // clientID -> messageID -> message
+	inflightMutex       sync.RWMutex
+	pendingQoS2Messages map[uint16]*PendingQoS2Message // messageID -> message (QoS2 messages waiting for PUBREL)
+	pendingQoS2Mutex    sync.RWMutex
 }
 
 // RetainedMessage represents a message that should be stored and sent to new subscribers
@@ -40,14 +46,38 @@ type RetainedMessage struct {
 	Modified time.Time
 }
 
+// InflightMessage represents a message that has been sent to a client but not yet acknowledged
+type InflightMessage struct {
+	MessageID    uint16
+	ClientID     string
+	Topic        string
+	Payload      []byte
+	QoS          byte
+	SentTime     time.Time
+	RetryCount   int
+	Acknowledged bool
+}
+
+// PendingQoS2Message represents a QoS2 message that we've received a PUBLISH for and sent a PUBREC
+// but haven't received the PUBREL yet
+type PendingQoS2Message struct {
+	MessageID    uint16
+	ClientID     string
+	Topic        string
+	Payload      []byte
+	ReceivedTime time.Time
+}
+
 // NewServer creates a new MQTT broker server instance
 func NewServer(host string, port int) *Server {
 	return &Server{
-		Host:             host,
-		Port:             port,
-		clients:          make(map[string]*Client),
-		subscriptions:    make(map[string][]*Subscription),
-		retainedMessages: make(map[string]RetainedMessage),
+		Host:                host,
+		Port:                port,
+		clients:             make(map[string]*Client),
+		subscriptions:       make(map[string][]*Subscription),
+		retainedMessages:    make(map[string]RetainedMessage),
+		inflightMessages:    make(map[string]map[uint16]*InflightMessage),
+		pendingQoS2Messages: make(map[uint16]*PendingQoS2Message),
 	}
 }
 
@@ -59,6 +89,9 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to start MQTT server: %w", err)
 	}
 	s.listener = listener
+
+	// Start the message retry mechanism
+	s.startMessageRetry()
 
 	log.Printf("MQTT server started on %s\n", addr)
 
@@ -232,8 +265,19 @@ func (s *Server) handleConnect(conn net.Conn, packet *Packet) {
 
 // handlePublish processes a PUBLISH packet
 func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
-	log.Printf("Received PUBLISH: topic=%s, qos=%d, payload=%s\n",
-		packet.TopicName, packet.Qos, string(packet.Payload))
+	log.Printf("Received PUBLISH: topic=%s, qos=%d, messageID=%d, payload=%s\n",
+		packet.TopicName, packet.Qos, packet.MessageID, string(packet.Payload))
+
+	// Find client ID from connection
+	var clientID string
+	s.clientsMutex.RLock()
+	for id, client := range s.clients {
+		if client.Conn == conn {
+			clientID = id
+			break
+		}
+	}
+	s.clientsMutex.RUnlock()
 
 	// Handle retained messages
 	if packet.Retain {
@@ -255,7 +299,36 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 		s.retainedMessagesMutex.Unlock()
 	}
 
-	// Distribute the message to subscribers
+	// For QoS2, store the message until we receive PUBREL
+	if packet.Qos == QoS2 {
+		s.pendingQoS2Mutex.Lock()
+		s.pendingQoS2Messages[packet.MessageID] = &PendingQoS2Message{
+			MessageID:    packet.MessageID,
+			ClientID:     clientID,
+			Topic:        packet.TopicName,
+			Payload:      packet.Payload,
+			ReceivedTime: time.Now(),
+		}
+		s.pendingQoS2Mutex.Unlock()
+
+		// Send PUBREC
+		pubrec := NewPubRecPacket(packet.MessageID)
+		pubrecBytes, err := pubrec.Encode()
+		if err != nil {
+			log.Printf("Error encoding PUBREC: %v\n", err)
+			return
+		}
+
+		_, err = conn.Write(pubrecBytes)
+		if err != nil {
+			log.Printf("Error sending PUBREC: %v\n", err)
+		}
+
+		// For QoS2, we don't distribute the message until we get PUBREL
+		return
+	}
+
+	// Distribute the message to subscribers for QoS0 and QoS1
 	s.distributeMessage(packet.TopicName, packet.Payload, packet.Qos)
 
 	// If QoS1, send PUBACK
@@ -271,35 +344,50 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 		if err != nil {
 			log.Printf("Error sending PUBACK: %v\n", err)
 		}
-	} else if packet.Qos == QoS2 {
-		// For QoS2, we need to implement the full QoS2 flow:
-		// PUBLISH -> PUBREC -> PUBREL -> PUBCOMP
-		pubrec := NewPubRecPacket(packet.MessageID)
-		pubrecBytes, err := pubrec.Encode()
-		if err != nil {
-			log.Printf("Error encoding PUBREC: %v\n", err)
-			return
-		}
-
-		_, err = conn.Write(pubrecBytes)
-		if err != nil {
-			log.Printf("Error sending PUBREC: %v\n", err)
-		}
-		// Note: The rest of the QoS2 flow will be handled as we receive the PUBREL
 	}
 }
 
 // handlePubAck processes a PUBACK packet (QoS 1 acknowledgment)
 func (s *Server) handlePubAck(conn net.Conn, packet *Packet) {
-	// For QoS 1, this is the end of the flow
 	log.Printf("Received PUBACK for message ID %d", packet.MessageID)
 
-	// In a more complete implementation, we would remove the message from our delivery queue
+	// Find client from connection
+	var clientID string
+	s.clientsMutex.RLock()
+	for id, client := range s.clients {
+		if client.Conn == conn {
+			clientID = id
+			break
+		}
+	}
+	s.clientsMutex.RUnlock()
+
+	if clientID != "" {
+		// Remove the message from our inflight store
+		s.removeInflightMessage(clientID, packet.MessageID)
+	}
 }
 
 // handlePubRec processes a PUBREC packet (first acknowledgment in QoS 2 flow)
 func (s *Server) handlePubRec(conn net.Conn, packet *Packet) {
 	log.Printf("Received PUBREC for message ID %d", packet.MessageID)
+
+	// Find client from connection
+	var clientID string
+	s.clientsMutex.RLock()
+	for id, client := range s.clients {
+		if client.Conn == conn {
+			clientID = id
+			break
+		}
+	}
+	s.clientsMutex.RUnlock()
+
+	if clientID != "" {
+		// Mark the message as acknowledged in our inflight store
+		// We don't remove it yet because we need to wait for PUBCOMP
+		s.acknowledgeInflightMessage(clientID, packet.MessageID)
+	}
 
 	// Send PUBREL in response
 	pubrel := NewPubRelPacket(packet.MessageID)
@@ -319,6 +407,22 @@ func (s *Server) handlePubRec(conn net.Conn, packet *Packet) {
 func (s *Server) handlePubRel(conn net.Conn, packet *Packet) {
 	log.Printf("Received PUBREL for message ID %d", packet.MessageID)
 
+	// Get the pending QoS2 message
+	s.pendingQoS2Mutex.Lock()
+	pendingMsg, exists := s.pendingQoS2Messages[packet.MessageID]
+	if exists {
+		// Remove it from pending map
+		delete(s.pendingQoS2Messages, packet.MessageID)
+	}
+	s.pendingQoS2Mutex.Unlock()
+
+	// If we found a pending message, now we can distribute it
+	if exists {
+		log.Printf("Distributing QoS2 message (ID: %d) after receiving PUBREL", packet.MessageID)
+		// Now that we've received PUBREL, we can deliver the message to subscribers
+		s.distributeMessage(pendingMsg.Topic, pendingMsg.Payload, QoS2)
+	}
+
 	// Send PUBCOMP to acknowledge
 	pubcomp := NewPubCompPacket(packet.MessageID)
 	pubcompBytes, err := pubcomp.Encode()
@@ -331,17 +435,27 @@ func (s *Server) handlePubRel(conn net.Conn, packet *Packet) {
 	if err != nil {
 		log.Printf("Error sending PUBCOMP: %v\n", err)
 	}
-
-	// At this point, we could deliver the QoS 2 message to subscribers
-	// In a real implementation, we would have stored the message when we received the PUBLISH
 }
 
 // handlePubComp processes a PUBCOMP packet (final acknowledgment in QoS 2 flow)
 func (s *Server) handlePubComp(conn net.Conn, packet *Packet) {
-	// For QoS 2, this is the end of the flow
 	log.Printf("Received PUBCOMP for message ID %d", packet.MessageID)
 
-	// In a more complete implementation, we would remove the message from our delivery queue
+	// Find client from connection
+	var clientID string
+	s.clientsMutex.RLock()
+	for id, client := range s.clients {
+		if client.Conn == conn {
+			clientID = id
+			break
+		}
+	}
+	s.clientsMutex.RUnlock()
+
+	if clientID != "" {
+		// Now we can completely remove the message from our inflight store
+		s.removeInflightMessage(clientID, packet.MessageID)
+	}
 }
 
 // handleSubscribe processes a SUBSCRIBE packet
@@ -541,8 +655,7 @@ func (s *Server) distributeMessage(topic string, payload []byte, qos byte) {
 	s.subMutex.RLock()
 	defer s.subMutex.RUnlock()
 
-	// Find matching subscriptions using simple topic matching
-	// In a full implementation, this would handle wildcards (+ and #)
+	// Find matching subscriptions using topic matching
 	for subTopic, subscriptions := range s.subscriptions {
 		if topicMatches(subTopic, topic) {
 			for _, subscription := range subscriptions {
@@ -558,8 +671,14 @@ func (s *Server) distributeMessage(topic string, payload []byte, qos byte) {
 						effectiveQoS = subscription.QoS
 					}
 
+					// Generate message ID for QoS > 0
+					var messageID uint16 = 0
+					if effectiveQoS > 0 {
+						messageID = s.generateMessageID(client.ID)
+					}
+
 					// Create PUBLISH packet
-					publish := NewPublishPacket(topic, payload, effectiveQoS, 1, false, false)
+					publish := NewPublishPacket(topic, payload, effectiveQoS, messageID, false, false)
 					publishBytes, err := publish.Encode()
 					if err != nil {
 						log.Printf("Error encoding PUBLISH for client %s: %v\n",
@@ -567,15 +686,100 @@ func (s *Server) distributeMessage(topic string, payload []byte, qos byte) {
 						continue
 					}
 
+					// For QoS1 and QoS2, store the message as in-flight
+					if effectiveQoS > 0 {
+						s.storeInflightMessage(client.ID, messageID, topic, payload, effectiveQoS)
+					}
+
 					// Send to client
 					_, err = client.Conn.Write(publishBytes)
 					if err != nil {
 						log.Printf("Error sending PUBLISH to client %s: %v\n",
 							subscription.ClientID, err)
+					} else {
+						log.Printf("Sent PUBLISH to client %s: topic=%s, qos=%d, messageID=%d",
+							subscription.ClientID, topic, effectiveQoS, messageID)
 					}
 				}
 			}
 		}
+	}
+}
+
+// generateMessageID generates a unique message ID for a client
+func (s *Server) generateMessageID(clientID string) uint16 {
+	// Simple implementation - should be improved for production
+	s.inflightMutex.Lock()
+	defer s.inflightMutex.Unlock()
+
+	// Make sure the client map exists
+	if _, ok := s.inflightMessages[clientID]; !ok {
+		s.inflightMessages[clientID] = make(map[uint16]*InflightMessage)
+	}
+
+	// Generate a unique message ID (1-65535)
+	var messageID uint16 = 1
+	for {
+		if _, exists := s.inflightMessages[clientID][messageID]; !exists {
+			break
+		}
+		messageID++
+		if messageID == 0 { // Avoid messageID 0 (wrap-around)
+			messageID = 1
+		}
+	}
+
+	return messageID
+}
+
+// storeInflightMessage stores a message that's been sent to a client and waiting for ack
+func (s *Server) storeInflightMessage(clientID string, messageID uint16, topic string, payload []byte, qos byte) {
+	s.inflightMutex.Lock()
+	defer s.inflightMutex.Unlock()
+
+	// Make sure the client map exists
+	if _, ok := s.inflightMessages[clientID]; !ok {
+		s.inflightMessages[clientID] = make(map[uint16]*InflightMessage)
+	}
+
+	// Store the message
+	s.inflightMessages[clientID][messageID] = &InflightMessage{
+		MessageID:    messageID,
+		ClientID:     clientID,
+		Topic:        topic,
+		Payload:      payload,
+		QoS:          qos,
+		SentTime:     time.Now(),
+		RetryCount:   0,
+		Acknowledged: false,
+	}
+
+	log.Printf("Stored inflight message: client=%s, messageID=%d, qos=%d", clientID, messageID, qos)
+}
+
+// acknowledgeInflightMessage marks a message as acknowledged
+func (s *Server) acknowledgeInflightMessage(clientID string, messageID uint16) {
+	s.inflightMutex.Lock()
+	defer s.inflightMutex.Unlock()
+
+	// Check if the message exists
+	if clientMessages, ok := s.inflightMessages[clientID]; ok {
+		if message, exists := clientMessages[messageID]; exists {
+			message.Acknowledged = true
+			log.Printf("Acknowledged inflight message: client=%s, messageID=%d", clientID, messageID)
+		}
+	}
+}
+
+// removeInflightMessage removes a message from the inflight store
+func (s *Server) removeInflightMessage(clientID string, messageID uint16) {
+	s.inflightMutex.Lock()
+	defer s.inflightMutex.Unlock()
+
+	// Remove the message if it exists
+	if clientMessages, ok := s.inflightMessages[clientID]; ok {
+		delete(clientMessages, messageID)
+		log.Printf("Removed inflight message: client=%s, messageID=%d", clientID, messageID)
 	}
 }
 
@@ -626,18 +830,94 @@ func topicMatches(subTopic, pubTopic string) bool {
 	}
 
 	// Check each segment
-	for i := 0; i < len(subSegments); i++ {
+	for i, segment := range subSegments {
 		// + wildcard matches any single segment
-		if subSegments[i] == "+" {
+		if segment == "+" {
 			continue
 		}
 
 		// If segments don't match, no match
-		if subSegments[i] != pubSegments[i] {
+		if segment != pubSegments[i] {
 			return false
 		}
 	}
 
 	// All segments matched
 	return true
+}
+
+// startMessageRetry starts a goroutine to periodically check and retry unacknowledged messages
+func (s *Server) startMessageRetry() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			s.retryInflightMessages()
+		}
+	}()
+}
+
+// retryInflightMessages checks for unacknowledged messages that need to be retried
+func (s *Server) retryInflightMessages() {
+	s.inflightMutex.Lock()
+	defer s.inflightMutex.Unlock()
+
+	now := time.Now()
+	retryInterval := 10 * time.Second // Time to wait before retry
+	maxRetries := 3                   // Maximum number of retries
+
+	for clientID, messages := range s.inflightMessages {
+		// Get the client
+		s.clientsMutex.RLock()
+		client, ok := s.clients[clientID]
+		s.clientsMutex.RUnlock()
+
+		if !ok || !client.IsConnected {
+			// Client disconnected, clean up its messages
+			delete(s.inflightMessages, clientID)
+			continue
+		}
+
+		for messageID, msg := range messages {
+			// Skip acknowledged messages
+			if msg.Acknowledged {
+				continue
+			}
+
+			// Check if it's time to retry
+			if now.Sub(msg.SentTime) > retryInterval {
+				// Check if we've reached max retries
+				if msg.RetryCount >= maxRetries {
+					log.Printf("Message ID %d to client %s exceeded max retries, giving up",
+						messageID, clientID)
+					delete(messages, messageID)
+					continue
+				}
+
+				// Retry the message
+				log.Printf("Retrying message ID %d to client %s (retry #%d)",
+					messageID, clientID, msg.RetryCount+1)
+
+				// Create a new PUBLISH packet with the DUP flag set
+				publish := NewPublishPacket(msg.Topic, msg.Payload, msg.QoS, messageID, true, false)
+				publishBytes, err := publish.Encode()
+				if err != nil {
+					log.Printf("Error encoding retry PUBLISH: %v", err)
+					continue
+				}
+
+				// Send to client
+				_, err = client.Conn.Write(publishBytes)
+				if err != nil {
+					log.Printf("Error sending retry PUBLISH: %v", err)
+					continue
+				}
+
+				// Update retry count and time
+				msg.RetryCount++
+				msg.SentTime = now
+			}
+		}
+	}
 }
