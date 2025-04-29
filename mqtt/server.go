@@ -143,7 +143,17 @@ func (s *Server) handleConnection(conn net.Conn) {
 				log.Printf("Client %s disconnected unexpectedly, processing Will message", clientID)
 
 				// Publish the Will message if present
-				if clientToRemove.WillTopic != "" {
+				if clientToRemove.WillTopic != "" && clientToRemove.ProcessWill() {
+					// Check if the will message should be retained
+					if clientToRemove.WillRetain {
+						s.storeRetainedMessage(
+							clientToRemove.WillTopic,
+							clientToRemove.WillMessage,
+							clientToRemove.WillQoS,
+						)
+					}
+
+					// Distribute the will message to subscribers
 					s.distributeMessage(
 						clientToRemove.WillTopic,
 						clientToRemove.WillMessage,
@@ -281,22 +291,7 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 
 	// Handle retained messages
 	if packet.Retain {
-		s.retainedMessagesMutex.Lock()
-		if len(packet.Payload) == 0 {
-			// Empty payload means delete the retained message
-			delete(s.retainedMessages, packet.TopicName)
-			log.Printf("Deleted retained message for topic: %s", packet.TopicName)
-		} else {
-			// Store the retained message
-			s.retainedMessages[packet.TopicName] = RetainedMessage{
-				Topic:    packet.TopicName,
-				Payload:  packet.Payload,
-				QoS:      packet.Qos,
-				Modified: time.Now(),
-			}
-			log.Printf("Stored retained message for topic: %s", packet.TopicName)
-		}
-		s.retainedMessagesMutex.Unlock()
+		s.storeRetainedMessage(packet.TopicName, packet.Payload, packet.Qos)
 	}
 
 	// For QoS2, store the message until we receive PUBREL
@@ -919,5 +914,26 @@ func (s *Server) retryInflightMessages() {
 				msg.SentTime = now
 			}
 		}
+	}
+}
+
+// storeRetainedMessage stores or deletes a retained message
+func (s *Server) storeRetainedMessage(topic string, payload []byte, qos byte) {
+	s.retainedMessagesMutex.Lock()
+	defer s.retainedMessagesMutex.Unlock()
+
+	if len(payload) == 0 {
+		// Empty payload means delete the retained message
+		delete(s.retainedMessages, topic)
+		log.Printf("Deleted retained message for topic: %s", topic)
+	} else {
+		// Store the retained message
+		s.retainedMessages[topic] = RetainedMessage{
+			Topic:    topic,
+			Payload:  payload,
+			QoS:      qos,
+			Modified: time.Now(),
+		}
+		log.Printf("Stored retained message for topic: %s", topic)
 	}
 }

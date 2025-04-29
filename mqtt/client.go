@@ -1,6 +1,7 @@
 package mqtt
 
 import (
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -71,11 +72,11 @@ func (c *Client) Disconnect() {
 }
 
 // ProcessWill publishes the client's will message if one is set
-func (c *Client) ProcessWill() {
+func (c *Client) ProcessWill() bool {
 	// This will be called when a connection is closed unexpectedly
 	if c.WillTopic != "" && len(c.WillMessage) > 0 {
-		// The actual publishing would be handled by the Server
-		// Just log for now
-		// TODO: Implement actual will message publishing
+		log.Printf("Processing will message for client %s on topic %s", c.ID, c.WillTopic)
+		return true
 	}
+	return false
 }
