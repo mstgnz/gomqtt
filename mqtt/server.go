@@ -92,6 +92,9 @@ type Server struct {
 
 	// Message retention configuration
 	messageRetention time.Duration // How long to keep messages in storage (0 = forever)
+
+	// Server state
+	serverState map[string]any
 }
 
 // RetainedMessage represents a message that should be stored and sent to new subscribers
@@ -148,6 +151,7 @@ func NewServer(host string, port int) *Server {
 				return true // Allow all origins by default
 			},
 		},
+		serverState: make(map[string]any),
 	}
 }
 
@@ -1300,7 +1304,6 @@ func (s *Server) deliverMessageToSubscriber(subscription *Subscription, topic st
 
 // generateMessageID generates a unique message ID for a client
 func (s *Server) generateMessageID(clientID string) uint16 {
-	// Simple implementation - should be improved for production
 	s.inflightMutex.Lock()
 	defer s.inflightMutex.Unlock()
 
@@ -1309,8 +1312,25 @@ func (s *Server) generateMessageID(clientID string) uint16 {
 		s.inflightMessages[clientID] = make(map[uint16]*InflightMessage)
 	}
 
-	// Generate a unique message ID (1-65535)
-	var messageID uint16 = 1
+	// Track the last used message ID for this client
+	lastIDKey := fmt.Sprintf("%s_lastMsgID", clientID)
+
+	// Retrieve the last ID used for this client (defaulting to 0)
+	var lastID uint16
+	if val, exists := s.serverState[lastIDKey]; exists {
+		if id, ok := val.(uint16); ok {
+			lastID = id
+		}
+	}
+
+	// Start from the last used ID + 1
+	messageID := lastID + 1
+	if messageID == 0 { // Avoid messageID 0 (wrap-around)
+		messageID = 1
+	}
+
+	// Find an available ID if this one is already in use
+	originalID := messageID
 	for {
 		if _, exists := s.inflightMessages[clientID][messageID]; !exists {
 			break
@@ -1319,7 +1339,15 @@ func (s *Server) generateMessageID(clientID string) uint16 {
 		if messageID == 0 { // Avoid messageID 0 (wrap-around)
 			messageID = 1
 		}
+		// Prevent infinite loop if all IDs are somehow in use
+		if messageID == originalID {
+			log.Printf("Warning: All message IDs are in use for client %s", clientID)
+			break
+		}
 	}
+
+	// Store the new ID as the last used ID for this client
+	s.serverState[lastIDKey] = messageID
 
 	return messageID
 }

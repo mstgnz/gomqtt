@@ -11,10 +11,9 @@ import (
 
 // mockNetwork simulates a network with multiple clients for integration testing
 type mockNetwork struct {
-	server     *Server
-	clients    map[string]*mockNetConn
-	clientsMu  sync.Mutex
-	messageLog []string
+	server    *Server
+	clients   map[string]*mockNetConn
+	clientsMu sync.Mutex
 }
 
 // mockNetConn is a simulated network connection
@@ -46,10 +45,6 @@ func (mn *mockNetwork) createClient(id string) *mockNetConn {
 	go mn.server.handleConnection(serverConn)
 
 	return clientConn
-}
-
-func (mn *mockNetwork) logMessage(msg string) {
-	mn.messageLog = append(mn.messageLog, msg)
 }
 
 func newMockNetConnPair(id string, network *mockNetwork) (*mockNetConn, *mockNetConn) {
