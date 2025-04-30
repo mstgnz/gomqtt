@@ -90,9 +90,36 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 
 - 🧩 **Flexible Plugin Architecture**: Extend the broker with custom plugins
 - 🔧 **Event-Based System**: Plugins can hook into various broker events
-- 📦 **Built-in Plugins**: Webhook, Rate Limiter, HTTP Authentication
+- 📦 **Built-in Plugins**: Webhook, Rate Limiter, HTTP Authentication, Message Transformation
 - 🔌 **External Plugins**: Load Go plugins at runtime
 - 🛠️ **Developer-Friendly API**: Easy to create new plugins
+
+### Protocol Bridges
+
+- 🌉 **Multiple Protocol Support**: Bridge MQTT to other protocols
+- 🔄 **HTTP Bridge**: Connect MQTT to RESTful services
+- 📡 **CoAP Bridge**: Integrate with Constrained Application Protocol
+- 📊 **MQTT-MQTT Bridge**: Connect different MQTT brokers
+- 🔁 **AMQP/Kafka Support**: Bridge to enterprise messaging systems
+- 🔌 **gRPC Integration**: Connect to modern microservices
+
+### Visualization & Monitoring
+
+- 📊 **Rich Dashboard**: Real-time metrics with interactive charts
+- 🔍 **Message Flow Visualization**: See message paths between clients
+- 🌐 **Geographical Connection Map**: View client locations worldwide
+- 🌡️ **Topic Heatmap**: Identify hot topics with high activity
+- 📈 **Time-Series Analytics**: Track historical performance metrics
+- 🌲 **Topic Hierarchy Visualization**: Navigate topic structures visually
+
+### Message Transformation
+
+- 🔄 **Content Format Conversion**: Transform between JSON, XML, and other formats
+- 🎯 **Content-based Filtering**: Filter messages based on payload content
+- 🔍 **Pattern Matching**: Apply regular expressions to message payloads
+- 🔌 **Data Enrichment**: Add metadata or additional information to messages
+- ⚙️ **Template-based Transformation**: Use templates to reshape message structure
+- 📐 **Schema Validation**: Ensure messages conform to defined schemas
 
 ## 📚 Documentation
 

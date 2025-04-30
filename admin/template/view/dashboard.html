@@ -1,141 +1,313 @@
+{{ template "base" . }}
+
+{{ define "title" }}Dashboard - GoMQTT Admin{{ end }}
+
 {{ define "content" }}
-<div class="row mt-4">
-    <div class="col-12">
-        <h1 class="mb-4">Dashboard</h1>
-    </div>
-</div>
-
-<div class="row">
-    <!-- Active Clients Card -->
-    <div class="col-md-3">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Active Clients</h5>
-                <h2 class="card-text" hx-get="/api/stats/clients" hx-trigger="load, every 10s" hx-swap="innerHTML">
-                    {{ if .Data }}{{ .Data.ActiveClients }}{{ else }}0{{ end }}
-                </h2>
-            </div>
-        </div>
-    </div>
-
-    <!-- Messages Card -->
-    <div class="col-md-3">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Total Messages</h5>
-                <h2 class="card-text" hx-get="/api/stats/messages" hx-trigger="load, every 10s" hx-swap="innerHTML">
-                    {{ if .Data }}{{ .Data.MessageCount }}{{ else }}0{{ end }}
-                </h2>
-            </div>
-        </div>
-    </div>
-
-    <!-- Uptime Card -->
-    <div class="col-md-3">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Server Uptime</h5>
-                <h2 class="card-text" hx-get="/api/stats/uptime" hx-trigger="load, every 60s" hx-swap="innerHTML">
-                    {{ if .Data }}{{ .Data.ServerUptime }}{{ else }}0h 0m 0s{{ end }}
-                </h2>
-            </div>
-        </div>
-    </div>
-
-    <!-- Status Card -->
-    <div class="col-md-3">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Server Status</h5>
-                <div class="d-flex align-items-center">
-                    <div class="bg-success rounded-circle me-2" style="width: 12px; height: 12px;"></div>
-                    <h2 class="card-text mb-0">Online</h2>
+<div class="container-fluid p-3">
+    <h1 class="h3 mb-4">Dashboard</h1>
+    
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Connections</h5>
+                    <h2 class="display-4" id="active-connections">{{ .Stats.ActiveConnections }}</h2>
+                    <p class="text-muted">Total: {{ .Stats.TotalConnections }}</p>
+                    <div class="chart-container" style="height: 100px;">
+                        <canvas id="connections-chart"></canvas>
+                    </div>
                 </div>
-                <small>Since: {{ if .Data }}{{ .Data.ConnectedSince }}{{ else }}Not connected{{ end }}</small>
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Messages</h5>
+                    <h2 class="display-4" id="messages-per-second">{{ .Stats.MessagesPerSecond }}</h2>
+                    <p class="text-muted">Total: {{ .Stats.TotalMessages }}</p>
+                    <div class="chart-container" style="height: 100px;">
+                        <canvas id="messages-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Subscriptions</h5>
+                    <h2 class="display-4" id="active-subscriptions">{{ .Stats.ActiveSubscriptions }}</h2>
+                    <p class="text-muted">Total: {{ .Stats.TotalSubscriptions }}</p>
+                    <div class="chart-container" style="height: 100px;">
+                        <canvas id="subscriptions-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">CPU & Memory</h5>
+                    <h2 class="display-4" id="cpu-usage">{{ .Stats.CpuUsage }}%</h2>
+                    <p class="text-muted">Memory: {{ .Stats.MemoryUsage }}MB</p>
+                    <div class="chart-container" style="height: 100px;">
+                        <canvas id="system-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Message Flow Visualization</h5>
+                </div>
+                <div class="card-body">
+                    <div class="btn-group mb-3">
+                        <button class="btn btn-sm btn-outline-primary active" id="flow-view-live">Live View</button>
+                        <button class="btn btn-sm btn-outline-primary" id="flow-view-heatmap">Topic Heatmap</button>
+                        <button class="btn btn-sm btn-outline-primary" id="flow-view-tree">Topic Tree</button>
+                    </div>
+                    <div id="message-flow-container" style="height: 400px;">
+                        <canvas id="message-flow-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Top Topics</h5>
+                </div>
+                <div class="card-body" id="top-topics-container">
+                    <div class="chart-container" style="height: 250px;">
+                        <canvas id="top-topics-chart"></canvas>
+                    </div>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm table-striped" id="top-topics-table">
+                            <thead>
+                                <tr>
+                                    <th>Topic</th>
+                                    <th>Messages</th>
+                                    <th>Trend</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Filled by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Connection Map</h5>
+                </div>
+                <div class="card-body">
+                    <div id="map-container" style="height: 300px;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">QoS Distribution</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="qos-chart"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<div class="row mt-4">
-    <!-- Popular Topics -->
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="card-title mb-0">Popular Topics</h5>
-            </div>
-            <div class="card-body">
-                <table class="table" hx-get="/api/stats/topics" hx-trigger="load, every 30s" hx-swap="innerHTML">
-                    <thead>
-                        <tr>
-                            <th>Topic</th>
-                            <th>Messages</th>
-                            <th>Clients</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{ if and .Data .Data.TopTopics }}
-                            {{ range .Data.TopTopics }}
-                            <tr>
-                                <td>{{ .Topic }}</td>
-                                <td>{{ .Messages }}</td>
-                                <td>{{ .Clients }}</td>
-                            </tr>
-                            {{ else }}
-                            <tr>
-                                <td colspan="3" class="text-center">No topics yet</td>
-                            </tr>
-                            {{ end }}
-                        {{ else }}
-                        <tr>
-                            <td colspan="3" class="text-center">No topics yet</td>
-                        </tr>
-                        {{ end }}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+<!-- Required JavaScript for visualizations -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 
-    <!-- Recent Messages -->
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="card-title mb-0">Recent Messages</h5>
-            </div>
-            <div class="card-body">
-                <table class="table" hx-get="/api/messages/recent" hx-trigger="load, every 5s" hx-swap="innerHTML">
-                    <thead>
-                        <tr>
-                            <th>Topic</th>
-                            <th>Client ID</th>
-                            <th>Time</th>
-                            <th>Size</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{ if and .Data .Data.RecentMessages }}
-                            {{ range .Data.RecentMessages }}
-                            <tr>
-                                <td>{{ .Topic }}</td>
-                                <td>{{ .ClientID }}</td>
-                                <td>{{ .Timestamp }}</td>
-                                <td>{{ .Size }} B</td>
-                            </tr>
-                            {{ else }}
-                            <tr>
-                                <td colspan="4" class="text-center">No messages yet</td>
-                            </tr>
-                            {{ end }}
-                        {{ else }}
-                        <tr>
-                            <td colspan="4" class="text-center">No messages yet</td>
-                        </tr>
-                        {{ end }}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
+<script>
+// Initialize charts and visualizations
+document.addEventListener('DOMContentLoaded', function() {
+    // Real-time data fetching
+    const fetchInterval = 2000; // 2 seconds
+    
+    // Initialize charts
+    initializeCharts();
+    
+    // Initialize message flow visualization
+    initializeMessageFlow();
+    
+    // Initialize connection map
+    initializeConnectionMap();
+    
+    // Setup periodic updates
+    setInterval(() => {
+        updateDashboardData();
+    }, fetchInterval);
+    
+    // View switching for message flow
+    document.getElementById('flow-view-live').addEventListener('click', function() {
+        setActiveFlowView('live');
+    });
+    
+    document.getElementById('flow-view-heatmap').addEventListener('click', function() {
+        setActiveFlowView('heatmap');
+    });
+    
+    document.getElementById('flow-view-tree').addEventListener('click', function() {
+        setActiveFlowView('tree');
+    });
+});
+
+function initializeCharts() {
+    // Connections chart
+    const connectionsCtx = document.getElementById('connections-chart').getContext('2d');
+    window.connectionsChart = new Chart(connectionsCtx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: 'Connections',
+                data: [],
+                borderColor: 'rgba(75, 192, 192, 1)',
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'realtime',
+                    realtime: {
+                        duration: 60000,
+                        refresh: 1000,
+                        delay: 1000
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+    
+    // More chart initializations would go here
+    // ...
+}
+
+function initializeMessageFlow() {
+    // This would implement a D3.js or similar visualization
+    // showing real-time message flows between clients
+    const flowCanvas = document.getElementById('message-flow-canvas');
+    
+    // Placeholder for actual implementation
+    const ctx = flowCanvas.getContext('2d');
+    ctx.font = '16px Arial';
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'center';
+    ctx.fillText('Message flow visualization will appear here', flowCanvas.width / 2, flowCanvas.height / 2);
+}
+
+function initializeConnectionMap() {
+    // Initialize a world map showing connection locations
+    const map = L.map('map-container').setView([0, 0], 2);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    
+    window.connectionMap = map;
+}
+
+function updateDashboardData() {
+    // Fetch updated data from the server
+    fetch('/api/dashboard/stats')
+        .then(response => response.json())
+        .then(data => {
+            // Update dashboard metrics
+            document.getElementById('active-connections').textContent = data.activeConnections;
+            document.getElementById('messages-per-second').textContent = data.messagesPerSecond;
+            document.getElementById('active-subscriptions').textContent = data.activeSubscriptions;
+            document.getElementById('cpu-usage').textContent = data.cpuUsage + '%';
+            
+            // Update charts with new data
+            updateCharts(data);
+            
+            // Update message flow visualization
+            updateMessageFlow(data);
+            
+            // Update connection map
+            updateConnectionMap(data.connections);
+        })
+        .catch(error => console.error('Error fetching dashboard data:', error));
+}
+
+function updateCharts(data) {
+    // Update connections chart
+    if (window.connectionsChart) {
+        window.connectionsChart.data.datasets[0].data.push({
+            x: Date.now(),
+            y: data.activeConnections
+        });
+        window.connectionsChart.update();
+    }
+    
+    // Update other charts similarly
+    // ...
+}
+
+function updateMessageFlow(data) {
+    // Update the message flow visualization based on current view
+    const currentView = document.querySelector('#message-flow-container .btn.active').id;
+    
+    switch (currentView) {
+        case 'flow-view-live':
+            updateLiveFlow(data.messageFlow);
+            break;
+        case 'flow-view-heatmap':
+            updateHeatmapView(data.topicActivity);
+            break;
+        case 'flow-view-tree':
+            updateTreeView(data.topicHierarchy);
+            break;
+    }
+}
+
+function updateConnectionMap(connections) {
+    // Update the map with connection locations
+    // This would clear existing markers and add new ones
+    // based on the latest connection data
+}
+
+function setActiveFlowView(view) {
+    // Update active button
+    document.querySelectorAll('#message-flow-container .btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.getElementById(`flow-view-${view}`).classList.add('active');
+    
+    // Update visualization
+    updateDashboardData();
+}
+
+// Additional visualization functions would be defined here
+</script>
 {{ end }} 

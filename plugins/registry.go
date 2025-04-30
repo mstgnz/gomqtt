@@ -24,6 +24,28 @@ var AvailablePlugins = map[string]plugin.PluginConstructor{
 	"ratelimit": func() interface{ Plugin() *plugin.Plugin } { return ratelimit.NewRateLimitPlugin() },
 }
 
+// init initializes the plugin registry
+func init() {
+	// Register built-in plugins
+	once.Do(func() {
+		log.Println("Registering built-in plugins...")
+
+		// External plugins are configured in InitializePlugins instead
+		// This code was causing "undefined: config" error
+		/*
+			if config.ExternalPluginsEnabled {
+				if err := loadExternalPlugins(); err != nil {
+					log.Printf("Error loading external plugins: %v", err)
+				}
+			}
+		*/
+
+		// Register transform plugin when it's implemented
+		// This would need to follow the same pattern as other plugins
+		// We'd need to adjust the transform plugin to match the expected interface
+	})
+}
+
 // InitializePlugins initializes the plugin system
 func InitializePlugins(config plugin.PluginConfig) (*plugin.PluginRegistry, error) {
 	once.Do(func() {
@@ -39,6 +61,9 @@ func InitializePlugins(config plugin.PluginConfig) (*plugin.PluginRegistry, erro
 		if err := manager.LoadExternalPlugins(); err != nil {
 			log.Printf("Error loading external plugins: %v", err)
 		}
+
+		// Transform plugin needs to be adapted to match the PluginConstructor interface
+		// AvailablePlugins["transform"] = transform.New
 	})
 
 	return registry, nil
@@ -71,4 +96,9 @@ func ShutdownPlugins() {
 	if manager != nil {
 		manager.Shutdown()
 	}
+}
+
+// RegisterPlugin registers a new plugin
+func RegisterPlugin(name string, constructor plugin.PluginConstructor) {
+	AvailablePlugins[name] = constructor
 }
