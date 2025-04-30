@@ -12,7 +12,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 
 - 💡 **Lightweight & Fast**: Efficiently manages thousands of concurrent connections with Go's concurrency capabilities
 - 🔌 **Plugin System**: Extendable with an easily integratable plugin system
-- 🔐 **Secure**: Authentication with JWT, API Key, and mTLS support
+- 🔐 **Secure**: Authentication with JWT, API Key, OAuth2, and mTLS support
 - 🔄 **Multi-Transport**: Supports TCP, WebSocket, TLS (MQTTS), and WSS
 - 📊 **Admin Panel**: Fast interface built with Go + HTMX + templ
 - 🛢️ **Database Integration**: Message and session persistence with PostgreSQL
@@ -48,6 +48,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - TLS/SSL support (MQTTS)
 - Secure WebSocket (WSS)
 - JWT-based authentication
+- OAuth2 authentication
 - Client certificate verification (mTLS)
 - Topic-based permission control
 
@@ -91,7 +92,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - [ ] More database options (SQLite, MySQL)
 - [ ] Prometheus metrics
 - [x] Multi-node deployment with Docker Compose
-- [ ] OAuth2 integration
+- [x] OAuth2 integration
 - [ ] RBAC (Role-Based Access Control)
 
 ## 🔄 Clustering
@@ -155,6 +156,62 @@ To deploy a multi-node cluster:
    - HAProxy Stats: `http://localhost:8404`
 
 For more details, see [CLUSTER-SETUP.md](CLUSTER-SETUP.md).
+
+## 🔒 OAuth2 Authentication
+
+GoMQTT supports OAuth2 authentication for secure client connections. This allows integration with popular identity providers like Google, GitHub, Auth0, and others.
+
+### OAuth2 Configuration
+
+To enable OAuth2 authentication, update your configuration file:
+
+```json
+{
+  "auth": {
+    "jwt_secret": "your-jwt-secret",
+    "jwt_expires": 24,
+    "oauth2": {
+      "enabled": true,
+      "client_id": "your-client-id",
+      "client_secret": "your-client-secret",
+      "auth_url": "https://accounts.google.com/o/oauth2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "redirect_url": "http://localhost:8080/oauth/callback",
+      "scopes": ["email", "profile"],
+      "user_info_url": "https://www.googleapis.com/oauth2/v3/userinfo",
+      "token_field": "password",
+      "username_field": "email"
+    }
+  }
+}
+```
+
+- `enabled`: Set to `true` to enable OAuth2 authentication
+- `client_id` and `client_secret`: Credentials from your OAuth2 provider
+- `auth_url`: Authorization URL for the OAuth2 provider
+- `token_url`: Token URL for the OAuth2 provider
+- `redirect_url`: Callback URL for the OAuth2 flow
+- `scopes`: OAuth2 scopes to request
+- `user_info_url`: URL to retrieve user information
+- `token_field`: Field in MQTT CONNECT packet to use for the token (usually "password")
+- `username_field`: Field in user info response to use as username
+
+### Client Configuration
+
+When connecting with an MQTT client, use:
+
+- Username: The username field from your OAuth2 provider
+- Password: The OAuth2 token received from your provider
+
+### Supported Providers
+
+GoMQTT has been tested with the following OAuth2 providers:
+
+- Google
+- GitHub
+- Auth0
+- Okta
+- Azure AD
 
 ## 🏗️ Connection Options
 

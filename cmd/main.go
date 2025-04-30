@@ -40,6 +40,25 @@ func main() {
 	// Setup authentication
 	authService := auth.New(cfg.Auth.JWTSecret)
 
+	// Setup OAuth2 if enabled
+	if cfg.Auth.OAuth2.Enabled {
+		log.Printf("Setting up OAuth2 authentication...")
+		oauth2Provider := auth.NewOAuth2Provider(auth.OAuth2Config{
+			Enabled:       true,
+			ClientID:      cfg.Auth.OAuth2.ClientID,
+			ClientSecret:  cfg.Auth.OAuth2.ClientSecret,
+			AuthURL:       cfg.Auth.OAuth2.AuthURL,
+			TokenURL:      cfg.Auth.OAuth2.TokenURL,
+			RedirectURL:   cfg.Auth.OAuth2.RedirectURL,
+			Scopes:        cfg.Auth.OAuth2.Scopes,
+			UserInfoURL:   cfg.Auth.OAuth2.UserInfoURL,
+			TokenField:    cfg.Auth.OAuth2.TokenField,
+			UsernameField: cfg.Auth.OAuth2.UsernameField,
+		})
+		authService.SetOAuth2Provider(oauth2Provider)
+		log.Printf("OAuth2 authentication initialized")
+	}
+
 	// Setup storage
 	var store storage.Storage
 	var storageErr error

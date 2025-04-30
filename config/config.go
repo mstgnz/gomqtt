@@ -63,6 +63,20 @@ type Config struct {
 	Auth struct {
 		JWTSecret  string `json:"jwt_secret"`
 		JWTExpires int    `json:"jwt_expires"` // in hours
+
+		// OAuth2 configuration
+		OAuth2 struct {
+			Enabled       bool     `json:"enabled"`
+			ClientID      string   `json:"client_id"`
+			ClientSecret  string   `json:"client_secret"`
+			AuthURL       string   `json:"auth_url"`
+			TokenURL      string   `json:"token_url"`
+			RedirectURL   string   `json:"redirect_url"`
+			Scopes        []string `json:"scopes"`
+			UserInfoURL   string   `json:"user_info_url"`
+			TokenField    string   `json:"token_field"`    // Field from MQTT CONNECT containing token
+			UsernameField string   `json:"username_field"` // JSON field in user info containing username
+		} `json:"oauth2"`
 	} `json:"auth"`
 
 	Database struct {
@@ -163,6 +177,11 @@ func DefaultConfig() *Config {
 	// Auth defaults
 	cfg.Auth.JWTSecret = "change-me-in-production"
 	cfg.Auth.JWTExpires = 24 // 24 hours
+
+	// OAuth2 defaults
+	cfg.Auth.OAuth2.Enabled = false
+	cfg.Auth.OAuth2.TokenField = "password" // By default, use password field for token
+	cfg.Auth.OAuth2.UsernameField = "email" // Default username field in user info
 
 	// Database defaults
 	cfg.Database.Host = "localhost"

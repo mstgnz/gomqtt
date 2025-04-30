@@ -68,11 +68,12 @@ type ClientDevice struct {
 
 // Auth represents the authentication service
 type Auth struct {
-	secretKey     []byte
-	users         map[string]*User         // username -> User
-	apiKeys       map[string]*APIKey       // api key -> APIKey
-	clientDevices map[string]*ClientDevice // clientID -> ClientDevice
-	mutex         sync.RWMutex
+	secretKey      []byte
+	users          map[string]*User         // username -> User
+	apiKeys        map[string]*APIKey       // api key -> APIKey
+	clientDevices  map[string]*ClientDevice // clientID -> ClientDevice
+	oauth2Provider *OAuth2Provider          // OAuth2 provider if enabled
+	mutex          sync.RWMutex
 }
 
 // New creates a new authentication service
@@ -83,6 +84,11 @@ func New(secretKey string) *Auth {
 		apiKeys:       make(map[string]*APIKey),
 		clientDevices: make(map[string]*ClientDevice),
 	}
+}
+
+// SetOAuth2Provider sets the OAuth2 provider for authentication
+func (a *Auth) SetOAuth2Provider(provider *OAuth2Provider) {
+	a.oauth2Provider = provider
 }
 
 // Claims represents the JWT claims structure
@@ -259,19 +265,32 @@ func (a *Auth) RegisterUser(username, password string, isAdmin bool) error {
 	return nil
 }
 
-// AuthenticateUser authenticates a user with username and password
+// AuthenticateUser authenticates a user
 func (a *Auth) AuthenticateUser(username, password string) (*User, error) {
 	a.mutex.RLock()
 	defer a.mutex.RUnlock()
 
+	// Check if the user exists
 	user, exists := a.users[username]
 	if !exists {
 		return nil, ErrUserNotFound
 	}
 
-	// In production, compare password hashes
+	// OAuth2 Case: If OAuth2 is enabled and password is being used as token field
+	if a.oauth2Provider != nil && a.oauth2Provider.TokenField == "password" {
+		// Try to authenticate with OAuth2
+		if password != "" {
+			if _, err := a.oauth2Provider.ValidateOAuth2Token(password); err == nil {
+				// Update last login time
+				user.LastLogin = time.Now()
+				return user, nil
+			}
+		}
+	}
+
+	// Regular user/password authentication
 	if user.Password != password {
-		return nil, errors.New("invalid password")
+		return nil, errors.New("invalid credentials")
 	}
 
 	// Update last login time

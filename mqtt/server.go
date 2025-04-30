@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mstgnz/gomqtt/auth"
 	"github.com/mstgnz/gomqtt/rate"
 )
 
@@ -708,7 +709,94 @@ func (s *Server) handleConnect(conn net.Conn, packet *Packet) {
 	log.Printf("Client %s connected with protocol %s v%d\n",
 		clientID, packet.ProtocolName, packet.ProtocolVersion)
 
-	// TODO: Implement authentication here using Username and Password from packet
+	// Perform authentication if credentials are provided
+	var authErr error
+	username := ""
+
+	if packet.Username != "" {
+		// Get auth service
+		s.authServiceMutex.RLock()
+		authService, ok := s.authService.(*auth.Auth)
+		s.authServiceMutex.RUnlock()
+
+		if ok && authService != nil {
+			// Try OAuth2 authentication first (if enabled)
+			var oauth2Provider *auth.OAuth2Provider
+			oauth2Enabled := false
+
+			// Use reflection to access oauth2Provider field
+			authValue := reflect.ValueOf(authService).Elem()
+			oauth2ProviderField := authValue.FieldByName("oauth2Provider")
+
+			if oauth2ProviderField.IsValid() && !oauth2ProviderField.IsNil() {
+				oauth2Provider = oauth2ProviderField.Interface().(*auth.OAuth2Provider)
+				oauth2Enabled = true
+			}
+
+			if oauth2Enabled && oauth2Provider != nil {
+				// Determine which field contains the OAuth2 token
+				var token string
+
+				// Check token field configuration
+				tokenField := oauth2Provider.TokenField
+
+				switch tokenField {
+				case "password":
+					token = string(packet.Password)
+				case "username":
+					token = string(packet.Username)
+				default:
+					// Default to password field if not specified
+					token = string(packet.Password)
+				}
+
+				if token != "" {
+					// Attempt OAuth2 authentication
+					username, authErr = authService.AuthenticateOAuth2Token(token, clientID, oauth2Provider)
+					if authErr == nil {
+						log.Printf("Client %s authenticated via OAuth2", clientID)
+					} else {
+						log.Printf("OAuth2 authentication failed for client %s: %v", clientID, authErr)
+						// Continue to try regular authentication
+					}
+				}
+			}
+
+			// If OAuth2 authentication failed or wasn't attempted, try regular authentication
+			if username == "" && packet.Username != "" {
+				user, err := authService.AuthenticateUser(string(packet.Username), string(packet.Password))
+				if err == nil {
+					username = user.Username
+					log.Printf("Client %s authenticated as %s", clientID, username)
+				} else {
+					authErr = err
+					log.Printf("Authentication failed for client %s: %v", clientID, err)
+				}
+			}
+		}
+	}
+
+	// If authentication failed, deny connection
+	if packet.Username != "" && username == "" {
+		log.Printf("Authentication failed for client %s", clientID)
+
+		// Create CONNACK packet with authentication failure
+		connack := NewConnAckPacket(false, ConnRefusedBadUsernameOrPassword)
+		connackBytes, err := connack.Encode()
+		if err != nil {
+			log.Printf("Error encoding CONNACK: %v\n", err)
+			conn.Close()
+			return
+		}
+
+		_, err = conn.Write(connackBytes)
+		if err != nil {
+			log.Printf("Error sending CONNACK: %v\n", err)
+		}
+
+		conn.Close()
+		return
+	}
 
 	// Create CONNACK packet
 	connack := NewConnAckPacket(false, ConnAccepted) // No session present, connection accepted
@@ -726,6 +814,7 @@ func (s *Server) handleConnect(conn net.Conn, packet *Packet) {
 
 	// Create and store client
 	client := NewClient(clientID, conn)
+	client.Username = username // Store the authenticated username
 
 	// Save Will message if present
 	if packet.WillTopic != "" {
@@ -744,7 +833,7 @@ func (s *Server) handleConnect(conn net.Conn, packet *Packet) {
 	// Trigger plugin event for client connection
 	s.triggerPluginEvent("client.connect", map[string]any{
 		"ClientID":   clientID,
-		"Username":   packet.Username,
+		"Username":   username,
 		"Timestamp":  time.Now().Unix(),
 		"RemoteAddr": conn.RemoteAddr().String(),
 	})

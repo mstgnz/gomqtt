@@ -1,0 +1,81 @@
+{
+  "mqtt": {
+    "host": "0.0.0.0",
+    "port": 1883,
+    "max_connections": 1000,
+    "max_message_size": 16384,
+    "allow_anonymous": false,
+    "max_queue_size": 100,
+    "retain_available": true,
+    "rate_limiting": {
+      "enabled": true,
+      "connect_limit": 5,
+      "publish_limit": 100,
+      "subscribe_limit": 20,
+      "burst_multiplier": 2
+    }
+  },
+  "api": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "auth": {
+    "jwt_secret": "change-me-in-production",
+    "jwt_expires": 24,
+    "oauth2": {
+      "enabled": true,
+      "client_id": "your-client-id",
+      "client_secret": "your-client-secret",
+      "auth_url": "https://accounts.google.com/o/oauth2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "redirect_url": "http://localhost:8080/oauth/callback",
+      "scopes": ["email", "profile"],
+      "user_info_url": "https://www.googleapis.com/oauth2/v3/userinfo",
+      "token_field": "password",
+      "username_field": "email"
+    }
+  },
+  "database": {
+    "host": "postgres",
+    "port": 5432,
+    "user": "postgres",
+    "password": "postgres",
+    "db_name": "gomqtt",
+    "ssl_mode": "disable"
+  },
+  "redis": {
+    "enabled": false,
+    "host": "redis",
+    "port": 6379,
+    "password": "",
+    "db": 0,
+    "key_prefix": "gomqtt:"
+  },
+  "storage": {
+    "enabled": true,
+    "type": "postgres",
+    "message_retention": 24,
+    "cleanup_interval": 6,
+    "batch_size": 100
+  },
+  "plugins": {
+    "enabled": true,
+    "directory": "./plugins",
+    "autoload": []
+  },
+  "logging": {
+    "level": "info",
+    "format": "text",
+    "file": ""
+  },
+  "cluster": {
+    "enabled": false,
+    "node_id": "",
+    "node_host": "127.0.0.1",
+    "node_port": 7946,
+    "gossip_port": 7947,
+    "seed_nodes": [],
+    "sync_interval": 30
+  }
+} 

@@ -80,7 +80,19 @@ Here's an example of a configuration file with common settings:
   },
   "auth": {
     "jwt_secret": "change-me-in-production",
-    "jwt_expires": 24
+    "jwt_expires": 24,
+    "oauth2": {
+      "enabled": true,
+      "client_id": "your-oauth2-client-id",
+      "client_secret": "your-oauth2-client-secret",
+      "auth_url": "https://authorization-server.com/auth",
+      "token_url": "https://authorization-server.com/token",
+      "redirect_url": "http://localhost:8080/oauth/callback",
+      "scopes": ["email", "profile"],
+      "user_info_url": "https://authorization-server.com/userinfo",
+      "token_field": "password",
+      "username_field": "email"
+    }
   },
   "database": {
     "host": "localhost",
@@ -286,3 +298,63 @@ Common issues and solutions:
 - **Redis connection error**: Verify Redis is running and the connection details are correct
 
 For more examples and detailed client connection instructions, see [examples.md](examples.md).
+
+## OAuth2 Authentication Setup
+
+GoMQTT supports OAuth2 authentication, allowing you to integrate with popular identity providers like Google, GitHub, Auth0, and more.
+
+### OAuth2 Provider Setup
+
+#### Google
+
+1. Create a project at [Google Cloud Console](https://console.cloud.google.com/)
+2. Navigate to "APIs & Services" > "Credentials"
+3. Create an OAuth client ID (Web application)
+4. Configure your redirect URI: `http://localhost:8080/oauth/callback`
+5. Use the following configuration:
+   - `auth_url`: `https://accounts.google.com/o/oauth2/auth`
+   - `token_url`: `https://oauth2.googleapis.com/token`
+   - `user_info_url`: `https://www.googleapis.com/oauth2/v3/userinfo`
+   - `scopes`: `["email", "profile"]`
+   - `username_field`: `"email"`
+
+#### GitHub
+
+1. Register a new OAuth application at [GitHub Developer Settings](https://github.com/settings/developers)
+2. Configure your redirect URI: `http://localhost:8080/oauth/callback`
+3. Use the following configuration:
+   - `auth_url`: `https://github.com/login/oauth/authorize`
+   - `token_url`: `https://github.com/login/oauth/access_token`
+   - `user_info_url`: `https://api.github.com/user`
+   - `scopes`: `["user:email"]`
+   - `username_field`: `"login"`
+
+#### Auth0
+
+1. Create an application in your [Auth0 Dashboard](https://manage.auth0.com/)
+2. Configure your callback URL: `http://localhost:8080/oauth/callback`
+3. Use the following configuration:
+   - `auth_url`: `https://your-tenant.auth0.com/authorize`
+   - `token_url`: `https://your-tenant.auth0.com/oauth/token`
+   - `user_info_url`: `https://your-tenant.auth0.com/userinfo`
+   - `scopes`: `["openid", "profile", "email"]`
+   - `username_field`: `"email"`
+
+### Testing Your OAuth2 Configuration
+
+You can test your OAuth2 setup with a simple command line tool:
+
+```bash
+# Install a command line OAuth2 client
+go install github.com/cli/oauth2-helper@latest
+
+# Get an OAuth2 token (this will open a browser)
+oauth2-helper \
+  --client-id YOUR_CLIENT_ID \
+  --client-secret YOUR_CLIENT_SECRET \
+  --scopes "email profile" \
+  --auth-url "https://accounts.google.com/o/oauth2/auth" \
+  --token-url "https://oauth2.googleapis.com/token"
+
+# The tool will return an access token which you can use with MQTT clients
+```
