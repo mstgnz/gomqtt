@@ -23,11 +23,26 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 ✅ **MQTT Protocol Support**
 
 - MQTT v3.1.1 compatible
+- MQTT v5.0 compatible with full feature support
 - QoS 0, 1, and 2 support
 - Persistent sessions
 - Retained messages
 - Clean/Dirty session control
 - Will messages
+
+✅ **MQTT v5.0 Features**
+
+- User properties
+- Subscription identifiers
+- Topic aliases
+- Shared subscriptions
+- Session and message expiry intervals
+- Enhanced authentication (AUTH packets)
+- Reason codes for detailed error reporting
+- Server disconnect
+- Will delay intervals
+- Response topic and correlation data for request/response
+- Maximum packet size and QoS control
 
 ✅ **Security**
 
@@ -67,7 +82,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 
 ## 📋 Planned Features
 
-- [ ] Full MQTT v5.0 support
+- [x] Full MQTT v5.0 support
 - [ ] Clustering support
 - [ ] Shared subscriptions
 - [ ] Bridge mode

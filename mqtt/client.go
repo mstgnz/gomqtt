@@ -30,17 +30,40 @@ type Client struct {
 	WillMessage []byte
 	WillQoS     byte
 	WillRetain  bool
+
+	// MQTT v5.0 specific fields
+	ProtocolVersion       byte
+	SessionExpiryInterval int                 // Session expiry interval in seconds (0 = clean session)
+	WillDelayInterval     int                 // Will delay interval in seconds
+	ReceiveMaximum        int                 // Maximum receive limit for QoS > 0
+	MaximumPacketSize     int                 // Maximum packet size client can receive
+	TopicAliasMaximum     int                 // Maximum topic aliases
+	RequestProblemInfo    bool                // Whether client wants problem info
+	RequestResponseInfo   bool                // Whether client wants response info
+	UserProperties        map[string][]string // User properties from CONNECT
+
+	// Topic aliases (MQTT v5.0)
+	TopicAliases      map[int]string // Alias -> topic mapping
+	topicAliasesMutex sync.RWMutex
 }
 
 // NewClient creates a new MQTT client
 func NewClient(id string, conn net.Conn) *Client {
 	return &Client{
-		ID:            id,
-		Conn:          conn,
-		ConnTime:      time.Now(),
-		Subscriptions: make(map[string]*Subscription),
-		IsConnected:   true,
-		LastSeen:      time.Now(),
+		ID:                  id,
+		Conn:                conn,
+		ConnTime:            time.Now(),
+		Subscriptions:       make(map[string]*Subscription),
+		IsConnected:         true,
+		LastSeen:            time.Now(),
+		ProtocolVersion:     4,     // Default to MQTT 3.1.1
+		ReceiveMaximum:      65535, // Default
+		MaximumPacketSize:   0,     // Unlimited by default
+		TopicAliasMaximum:   0,     // No aliases by default
+		RequestProblemInfo:  true,  // Default
+		RequestResponseInfo: false, // Default
+		UserProperties:      make(map[string][]string),
+		TopicAliases:        make(map[int]string),
 	}
 }
 
@@ -79,4 +102,29 @@ func (c *Client) ProcessWill() bool {
 		return true
 	}
 	return false
+}
+
+// AddTopicAlias adds a topic alias for MQTT v5.0
+func (c *Client) AddTopicAlias(alias int, topic string) {
+	if c.ProtocolVersion != MQTT_5_0 {
+		return // Only for MQTT v5.0
+	}
+
+	c.topicAliasesMutex.Lock()
+	defer c.topicAliasesMutex.Unlock()
+
+	c.TopicAliases[alias] = topic
+}
+
+// ResolveTopicAlias gets the topic name for an alias
+func (c *Client) ResolveTopicAlias(alias int) (string, bool) {
+	if c.ProtocolVersion != MQTT_5_0 {
+		return "", false // Only for MQTT v5.0
+	}
+
+	c.topicAliasesMutex.RLock()
+	defer c.topicAliasesMutex.RUnlock()
+
+	topic, exists := c.TopicAliases[alias]
+	return topic, exists
 }
