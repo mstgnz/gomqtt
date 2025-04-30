@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -71,6 +72,14 @@ func (s *Server) setupRoutes() {
 				r.Post("/", s.handleCreatePermission())
 				r.Get("/{username}", s.handleGetUserPermissions())
 				r.Delete("/{username}/{topic}", s.handleDeletePermission())
+			})
+
+			// Message history endpoints
+			r.Route("/history", func(r chi.Router) {
+				r.Get("/", s.handleGetMessageHistory())
+				r.Get("/topics", s.handleGetMessageTopics())
+				r.Get("/topics/{topic}", s.handleGetTopicHistory())
+				r.Get("/clients/{clientID}", s.handleGetClientHistory())
 			})
 		})
 	})
@@ -315,5 +324,225 @@ func (s *Server) handleDeletePermission() http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": "Permission deleted successfully",
 		})
+	}
+}
+
+// handleGetMessageHistory retrieves message history with filtering
+func (s *Server) handleGetMessageHistory() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.Storage == nil {
+			http.Error(w, "Storage is not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Parse query parameters
+		query := storage.MessageQuery{
+			Topic:    r.URL.Query().Get("topic"),
+			ClientID: r.URL.Query().Get("client_id"),
+		}
+
+		// Parse timestamps
+		if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+			fromTime, err := time.Parse(time.RFC3339, fromStr)
+			if err != nil {
+				http.Error(w, "Invalid 'from' timestamp format. Use RFC3339 format (e.g., 2006-01-02T15:04:05Z)", http.StatusBadRequest)
+				return
+			}
+			query.FromTimestamp = fromTime
+		}
+
+		if toStr := r.URL.Query().Get("to"); toStr != "" {
+			toTime, err := time.Parse(time.RFC3339, toStr)
+			if err != nil {
+				http.Error(w, "Invalid 'to' timestamp format. Use RFC3339 format (e.g., 2006-01-02T15:04:05Z)", http.StatusBadRequest)
+				return
+			}
+			query.ToTimestamp = toTime
+		}
+
+		// Parse pagination parameters
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			limit, err := strconv.Atoi(limitStr)
+			if err != nil {
+				http.Error(w, "Invalid limit parameter", http.StatusBadRequest)
+				return
+			}
+			query.Limit = limit
+		}
+
+		if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+			offset, err := strconv.Atoi(offsetStr)
+			if err != nil {
+				http.Error(w, "Invalid offset parameter", http.StatusBadRequest)
+				return
+			}
+			query.Offset = offset
+		}
+
+		// Query the database
+		result, err := s.Storage.GetMessages(query)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve messages: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Format and return response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}
+}
+
+// handleGetMessageTopics retrieves distinct topics from message history
+func (s *Server) handleGetMessageTopics() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Currently we don't have a direct method to get topics,
+		// so we'll implement a placeholder
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotImplemented)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Topic history listing is not yet implemented",
+		})
+	}
+}
+
+// handleGetTopicHistory retrieves message history for a specific topic
+func (s *Server) handleGetTopicHistory() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.Storage == nil {
+			http.Error(w, "Storage is not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Get topic from URL
+		topic := chi.URLParam(r, "topic")
+		if topic == "" {
+			http.Error(w, "Topic is required", http.StatusBadRequest)
+			return
+		}
+
+		// Create query with the topic
+		query := storage.MessageQuery{
+			Topic: topic,
+		}
+
+		// Parse timestamps
+		if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+			fromTime, err := time.Parse(time.RFC3339, fromStr)
+			if err != nil {
+				http.Error(w, "Invalid 'from' timestamp format", http.StatusBadRequest)
+				return
+			}
+			query.FromTimestamp = fromTime
+		}
+
+		if toStr := r.URL.Query().Get("to"); toStr != "" {
+			toTime, err := time.Parse(time.RFC3339, toStr)
+			if err != nil {
+				http.Error(w, "Invalid 'to' timestamp format", http.StatusBadRequest)
+				return
+			}
+			query.ToTimestamp = toTime
+		}
+
+		// Parse pagination parameters
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			limit, err := strconv.Atoi(limitStr)
+			if err != nil {
+				http.Error(w, "Invalid limit parameter", http.StatusBadRequest)
+				return
+			}
+			query.Limit = limit
+		}
+
+		if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+			offset, err := strconv.Atoi(offsetStr)
+			if err != nil {
+				http.Error(w, "Invalid offset parameter", http.StatusBadRequest)
+				return
+			}
+			query.Offset = offset
+		}
+
+		// Query the database
+		result, err := s.Storage.GetMessages(query)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve messages: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Format and return response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}
+}
+
+// handleGetClientHistory retrieves message history for a specific client
+func (s *Server) handleGetClientHistory() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.Storage == nil {
+			http.Error(w, "Storage is not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Get client ID from URL
+		clientID := chi.URLParam(r, "clientID")
+		if clientID == "" {
+			http.Error(w, "Client ID is required", http.StatusBadRequest)
+			return
+		}
+
+		// Create query with the client ID
+		query := storage.MessageQuery{
+			ClientID: clientID,
+		}
+
+		// Parse timestamps
+		if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+			fromTime, err := time.Parse(time.RFC3339, fromStr)
+			if err != nil {
+				http.Error(w, "Invalid 'from' timestamp format", http.StatusBadRequest)
+				return
+			}
+			query.FromTimestamp = fromTime
+		}
+
+		if toStr := r.URL.Query().Get("to"); toStr != "" {
+			toTime, err := time.Parse(time.RFC3339, toStr)
+			if err != nil {
+				http.Error(w, "Invalid 'to' timestamp format", http.StatusBadRequest)
+				return
+			}
+			query.ToTimestamp = toTime
+		}
+
+		// Parse pagination parameters
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			limit, err := strconv.Atoi(limitStr)
+			if err != nil {
+				http.Error(w, "Invalid limit parameter", http.StatusBadRequest)
+				return
+			}
+			query.Limit = limit
+		}
+
+		if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+			offset, err := strconv.Atoi(offsetStr)
+			if err != nil {
+				http.Error(w, "Invalid offset parameter", http.StatusBadRequest)
+				return
+			}
+			query.Offset = offset
+		}
+
+		// Query the database
+		result, err := s.Storage.GetMessages(query)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve messages: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Format and return response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
 	}
 }

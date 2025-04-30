@@ -39,6 +39,13 @@ type Config struct {
 		SSLMode  string `json:"ssl_mode"`
 	} `json:"database"`
 
+	Storage struct {
+		Enabled          bool `json:"enabled"`
+		MessageRetention int  `json:"message_retention"` // in hours, 0 = forever
+		CleanupInterval  int  `json:"cleanup_interval"`  // in hours
+		BatchSize        int  `json:"batch_size"`        // for batch operations
+	} `json:"storage"`
+
 	Plugins struct {
 		Enabled   bool     `json:"enabled"`
 		Directory string   `json:"directory"`
@@ -81,6 +88,12 @@ func DefaultConfig() *Config {
 	cfg.Database.Password = "postgres"
 	cfg.Database.DBName = "gomqtt"
 	cfg.Database.SSLMode = "disable"
+
+	// Storage defaults
+	cfg.Storage.Enabled = true
+	cfg.Storage.MessageRetention = 24 // 24 hours
+	cfg.Storage.CleanupInterval = 1   // 1 hour
+	cfg.Storage.BatchSize = 100       // 100 messages per batch
 
 	// Plugin defaults
 	cfg.Plugins.Enabled = true

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/mstgnz/gomqtt/auth"
 	"github.com/mstgnz/gomqtt/cmd/admin"
@@ -44,6 +45,13 @@ func main() {
 		log.Println("Continuing without database support")
 	} else {
 		defer store.Close()
+
+		// Start message cleanup service if storage is enabled
+		if cfg.Storage.Enabled {
+			cleanupInterval := time.Duration(cfg.Storage.CleanupInterval) * time.Hour
+			store.StartMessageCleanup(cleanupInterval)
+			log.Printf("Message cleanup service started with interval: %s", cleanupInterval)
+		}
 	}
 
 	// Initialize plugin registry
@@ -78,6 +86,22 @@ func main() {
 
 	// Set auth service for permission checking
 	mqttServer.SetAuthService(authService)
+
+	// Set storage service for message persistence if available
+	if store != nil && cfg.Storage.Enabled {
+		mqttServer.SetStorageService(store)
+
+		// Configure message retention (how long to keep messages)
+		// 0 means store forever
+		if cfg.Storage.MessageRetention > 0 {
+			retention := time.Duration(cfg.Storage.MessageRetention) * time.Hour
+			mqttServer.SetMessageRetention(retention)
+			log.Printf("Message retention set to: %s", retention)
+		} else {
+			mqttServer.SetMessageRetention(0) // Store forever
+			log.Println("Message retention set to: forever (no expiration)")
+		}
+	}
 
 	// Create REST API server
 	apiAddr := fmt.Sprintf("%s:%d", cfg.API.Host, cfg.API.Port)

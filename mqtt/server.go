@@ -45,6 +45,13 @@ type Server struct {
 	// Auth service
 	authService      any // Uses any to avoid circular import
 	authServiceMutex sync.RWMutex
+
+	// Storage service
+	storageService      any // Uses any to avoid circular import
+	storageServiceMutex sync.RWMutex
+
+	// Message retention configuration
+	messageRetention time.Duration // How long to keep messages in storage (0 = forever)
 }
 
 // RetainedMessage represents a message that should be stored and sent to new subscribers
@@ -87,6 +94,7 @@ func NewServer(host string, port int) *Server {
 		retainedMessages:    make(map[string]RetainedMessage),
 		inflightMessages:    make(map[string]map[uint16]*InflightMessage),
 		pendingQoS2Messages: make(map[uint16]*PendingQoS2Message),
+		messageRetention:    24 * time.Hour, // Default: store messages for 24 hours
 	}
 }
 
@@ -340,6 +348,9 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 		return
 	}
 
+	// Store message in persistent storage
+	s.persistMessage(clientID, packet.TopicName, packet.Payload, packet.Qos, packet.Retain)
+
 	// Handle retained messages
 	if packet.Retain {
 		s.storeRetainedMessage(packet.TopicName, packet.Payload, packet.Qos)
@@ -401,6 +412,56 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 		if err != nil {
 			log.Printf("Error sending PUBACK: %v\n", err)
 		}
+	}
+}
+
+// persistMessage stores a message in the database if storage is available
+func (s *Server) persistMessage(clientID, topic string, payload []byte, qos byte, retained bool) {
+	s.storageServiceMutex.RLock()
+	storage := s.storageService
+	s.storageServiceMutex.RUnlock()
+
+	if storage == nil {
+		return
+	}
+
+	// Use reflection to call StoreMessage on the storage service
+	storageValue := reflect.ValueOf(storage)
+	storeMethod := storageValue.MethodByName("StoreMessage")
+
+	if !storeMethod.IsValid() {
+		return
+	}
+
+	// Create a simplified message structure that can be converted by reflection
+	type StorageMessage struct {
+		Topic     string
+		Payload   []byte
+		QoS       byte
+		Retained  bool
+		ClientID  string
+		Timestamp time.Time
+	}
+
+	// Populate the message with the data we have
+	msg := &StorageMessage{
+		Topic:     topic,
+		Payload:   payload,
+		QoS:       qos,
+		Retained:  retained,
+		ClientID:  clientID,
+		Timestamp: time.Now(),
+	}
+
+	// Call the StoreMessage method with message and retention
+	res := storeMethod.Call([]reflect.Value{
+		reflect.ValueOf(msg),
+		reflect.ValueOf(s.messageRetention),
+	})
+
+	// Check for errors
+	if len(res) > 0 && !res[0].IsNil() {
+		log.Printf("Error storing message in database: %v", res[0].Interface())
 	}
 }
 
@@ -1100,4 +1161,18 @@ func (s *Server) checkTopicPermission(clientID, topic string, requireWrite bool)
 	}
 
 	return nil
+}
+
+// SetStorageService sets the storage service for the MQTT server
+func (s *Server) SetStorageService(storage any) {
+	s.storageServiceMutex.Lock()
+	defer s.storageServiceMutex.Unlock()
+	s.storageService = storage
+	log.Printf("Storage service set for MQTT server")
+}
+
+// SetMessageRetention sets the duration for which messages are kept in storage
+func (s *Server) SetMessageRetention(retention time.Duration) {
+	s.messageRetention = retention
+	log.Printf("Message retention set to %s", retention)
 }
