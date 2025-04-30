@@ -1,0 +1,416 @@
+{{define "content"}}
+<div class="container-fluid">
+    <h1 class="h3 mb-4 text-gray-800">Audit Logs</h1>
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary">Filter Audit Logs</h6>
+                </div>
+                <div class="card-body">
+                    <form id="auditFilterForm">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="actionType">Action Type:</label>
+                                    <select class="form-control" id="actionType" name="action_type">
+                                        <option value="">All Actions</option>
+                                        <option value="create_user">Create User</option>
+                                        <option value="delete_user">Delete User</option>
+                                        <option value="create_permission">Create Permission</option>
+                                        <option value="delete_permission">Delete Permission</option>
+                                        <option value="create_role">Create Role</option>
+                                        <option value="delete_role">Delete Role</option>
+                                        <option value="publish">Publish Message</option>
+                                        <option value="login">Login</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="username">Username:</label>
+                                    <input type="text" class="form-control" id="username" name="username" placeholder="Filter by username">
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="entityType">Entity Type:</label>
+                                    <select class="form-control" id="entityType" name="entity_type">
+                                        <option value="">All Entities</option>
+                                        <option value="user">User</option>
+                                        <option value="permission">Permission</option>
+                                        <option value="role">Role</option>
+                                        <option value="message">Message</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="fromDate">From Date:</label>
+                                    <input type="date" class="form-control" id="fromDate" name="from_date">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="entityId">Entity ID:</label>
+                                    <input type="text" class="form-control" id="entityId" name="entity_id" placeholder="Filter by entity ID">
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="toDate">To Date:</label>
+                                    <input type="date" class="form-control" id="toDate" name="to_date">
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="limit">Limit:</label>
+                                    <select class="form-control" id="limit" name="limit">
+                                        <option value="10">10</option>
+                                        <option value="25">25</option>
+                                        <option value="50" selected>50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary btn-block">Apply Filters</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Audit Log Entries</h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered" id="auditTable" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Action</th>
+                                    <th>Username</th>
+                                    <th>Entity Type</th>
+                                    <th>Entity ID</th>
+                                    <th>IP Address</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auditTableBody">
+                                <!-- Audit logs will be loaded here -->
+                                <tr>
+                                    <td colspan="7" class="text-center">Loading audit logs...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-between mt-3">
+                        <button id="prevPage" class="btn btn-secondary" disabled>Previous</button>
+                        <span id="paginationInfo">Page 1</span>
+                        <button id="nextPage" class="btn btn-primary">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Actions by Type</h6>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="actionTypeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Actions by Day</h6>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="actionTimeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Pagination variables
+    let currentOffset = 0;
+    let currentLimit = 50;
+    let hasMore = false;
+    let totalCount = 0;
+
+    // Load audit logs on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadAuditLogs();
+        loadCharts();
+
+        // Set up event listeners
+        document.getElementById('auditFilterForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            currentOffset = 0; // Reset to first page
+            loadAuditLogs();
+        });
+
+        document.getElementById('prevPage').addEventListener('click', function() {
+            if (currentOffset > 0) {
+                currentOffset = Math.max(0, currentOffset - currentLimit);
+                loadAuditLogs();
+            }
+        });
+
+        document.getElementById('nextPage').addEventListener('click', function() {
+            if (hasMore) {
+                currentOffset += currentLimit;
+                loadAuditLogs();
+            }
+        });
+
+        // Initialize date pickers with default values
+        const today = new Date();
+        const lastWeek = new Date();
+        lastWeek.setDate(lastWeek.getDate() - 7);
+        
+        document.getElementById('toDate').valueAsDate = today;
+        document.getElementById('fromDate').valueAsDate = lastWeek;
+    });
+
+    // Load audit logs with current filters
+    function loadAuditLogs() {
+        const form = document.getElementById('auditFilterForm');
+        const formData = new FormData(form);
+        
+        // Build query parameters
+        const params = new URLSearchParams();
+        
+        // Add form values
+        for (const [key, value] of formData.entries()) {
+            if (value) {
+                if (key === 'from_date') {
+                    const date = new Date(value);
+                    params.append('from', date.toISOString());
+                } else if (key === 'to_date') {
+                    const date = new Date(value);
+                    date.setHours(23, 59, 59, 999); // End of day
+                    params.append('to', date.toISOString());
+                } else {
+                    params.append(key, value);
+                }
+            }
+        }
+        
+        // Add pagination
+        params.append('offset', currentOffset);
+        currentLimit = parseInt(formData.get('limit') || 50);
+        params.append('limit', currentLimit);
+        
+        // Show loading state
+        document.getElementById('auditTableBody').innerHTML = '<tr><td colspan="7" class="text-center">Loading audit logs...</td></tr>';
+        
+        // Fetch audit logs
+        fetch('/api/audit/logs?' + params.toString())
+            .then(response => response.json())
+            .then(data => {
+                displayAuditLogs(data);
+                updatePagination(data);
+            })
+            .catch(error => {
+                console.error('Error loading audit logs:', error);
+                document.getElementById('auditTableBody').innerHTML = '<tr><td colspan="7" class="text-center text-danger">Error loading audit logs</td></tr>';
+            });
+    }
+
+    // Display audit logs in the table
+    function displayAuditLogs(data) {
+        const tbody = document.getElementById('auditTableBody');
+        tbody.innerHTML = '';
+        
+        if (!data.Logs || data.Logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">No audit logs found</td></tr>';
+            return;
+        }
+        
+        data.Logs.forEach(log => {
+            const row = document.createElement('tr');
+            
+            // Format timestamp
+            const timestamp = new Date(log.Timestamp);
+            const formattedDate = timestamp.toLocaleDateString();
+            const formattedTime = timestamp.toLocaleTimeString();
+            
+            // Format details
+            let details = '';
+            if (log.Details) {
+                try {
+                    const detailsObj = JSON.parse(log.Details);
+                    details = '<ul class="mb-0">';
+                    for (const [key, value] of Object.entries(detailsObj)) {
+                        details += `<li><strong>${key}:</strong> ${value}</li>`;
+                    }
+                    details += '</ul>';
+                } catch (e) {
+                    details = log.Details;
+                }
+            }
+            
+            row.innerHTML = `
+                <td>${formattedDate}<br><small>${formattedTime}</small></td>
+                <td>${log.ActionType || '-'}</td>
+                <td>${log.Username || '-'}</td>
+                <td>${log.EntityType || '-'}</td>
+                <td>${log.EntityID || '-'}</td>
+                <td>${log.IPAddress || '-'}</td>
+                <td>${details || '-'}</td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+    }
+
+    // Update pagination controls
+    function updatePagination(data) {
+        const prevButton = document.getElementById('prevPage');
+        const nextButton = document.getElementById('nextPage');
+        const paginationInfo = document.getElementById('paginationInfo');
+        
+        totalCount = data.TotalCount;
+        hasMore = data.HasMore;
+        
+        // Enable/disable previous button
+        prevButton.disabled = currentOffset <= 0;
+        
+        // Enable/disable next button
+        nextButton.disabled = !hasMore;
+        
+        // Update pagination info
+        const currentPage = Math.floor(currentOffset / currentLimit) + 1;
+        const totalPages = Math.ceil(totalCount / currentLimit);
+        paginationInfo.textContent = `Page ${currentPage} of ${totalPages} (${totalCount} total records)`;
+    }
+
+    // Load charts
+    function loadCharts() {
+        // Load action type chart
+        fetch('/api/audit/chart?type=action')
+            .then(response => response.json())
+            .then(data => {
+                renderPieChart('actionTypeChart', data, 'Actions by Type');
+            })
+            .catch(error => console.error('Error loading action type chart:', error));
+        
+        // Load time chart
+        fetch('/api/audit/chart?type=time')
+            .then(response => response.json())
+            .then(data => {
+                renderLineChart('actionTimeChart', data, 'Actions per Day');
+            })
+            .catch(error => console.error('Error loading time chart:', error));
+    }
+
+    // Render pie chart
+    function renderPieChart(canvasId, data, title) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        
+        // Generate colors
+        const backgroundColors = data.Labels.map(() => getRandomColor());
+        
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: data.Labels,
+                datasets: [{
+                    data: data.Datasets[0].Data,
+                    backgroundColor: backgroundColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                    },
+                    title: {
+                        display: true,
+                        text: title
+                    }
+                }
+            }
+        });
+    }
+
+    // Render line chart
+    function renderLineChart(canvasId, data, title) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.Labels,
+                datasets: [{
+                    label: data.Datasets[0].Label,
+                    data: data.Datasets[0].Data,
+                    borderColor: 'rgba(78, 115, 223, 1)',
+                    backgroundColor: 'rgba(78, 115, 223, 0.1)',
+                    pointBackgroundColor: 'rgba(78, 115, 223, 1)',
+                    borderWidth: 2,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        grid: {
+                            drawOnChartArea: false
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: title
+                    }
+                }
+            }
+        });
+    }
+
+    // Generate random color
+    function getRandomColor() {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+</script>
+{{end}} 

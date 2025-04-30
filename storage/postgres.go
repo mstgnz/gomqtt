@@ -202,6 +202,35 @@ func (s *PostgresStorage) initSchema() error {
 		return fmt.Errorf("failed to create role_permissions table: %w", err)
 	}
 
+	// Create audit_logs table for tracking all actions
+	_, err = tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS audit_logs (
+			id SERIAL PRIMARY KEY,
+			action_type TEXT NOT NULL,
+			username TEXT,
+			client_id TEXT,
+			entity_type TEXT NOT NULL,
+			entity_id TEXT,
+			details JSONB,
+			ip_address TEXT,
+			timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create audit_logs table: %w", err)
+	}
+
+	// Create indexes for audit logs
+	_, err = tx.Exec(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs (timestamp);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_action_type ON audit_logs (action_type);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_username ON audit_logs (username);
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_entity_type ON audit_logs (entity_type);
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create audit_logs indexes: %w", err)
+	}
+
 	return tx.Commit(ctx)
 }
 
@@ -586,4 +615,158 @@ func (s *PostgresStorage) GetRetainedMessages(topicPattern string) ([]Message, e
 	}
 
 	return messages, nil
+}
+
+// LogAction logs an action to the audit log
+func (s *PostgresStorage) LogAction(log *AuditLog) error {
+	ctx := context.Background()
+
+	query := `
+		INSERT INTO audit_logs 
+		(action_type, username, client_id, entity_type, entity_id, details, ip_address) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`
+
+	_, err := s.pool.Exec(
+		ctx,
+		query,
+		log.ActionType,
+		log.Username,
+		log.ClientID,
+		log.EntityType,
+		log.EntityID,
+		log.Details,
+		log.IPAddress,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to log action: %w", err)
+	}
+
+	return nil
+}
+
+// GetAuditLogs retrieves audit logs based on query parameters
+func (s *PostgresStorage) GetAuditLogs(query AuditLogQuery) (*AuditLogPage, error) {
+	ctx := context.Background()
+
+	// Build query with filters
+	sqlQuery := `
+		SELECT 
+			id, action_type, username, client_id, 
+			entity_type, entity_id, details, ip_address, timestamp
+		FROM audit_logs
+		WHERE 1=1
+	`
+
+	// Build WHERE clause and arguments
+	args := []interface{}{}
+	argIndex := 1
+
+	if query.ActionType != "" {
+		sqlQuery += fmt.Sprintf(" AND action_type = $%d", argIndex)
+		args = append(args, query.ActionType)
+		argIndex++
+	}
+
+	if query.Username != "" {
+		sqlQuery += fmt.Sprintf(" AND username = $%d", argIndex)
+		args = append(args, query.Username)
+		argIndex++
+	}
+
+	if query.EntityType != "" {
+		sqlQuery += fmt.Sprintf(" AND entity_type = $%d", argIndex)
+		args = append(args, query.EntityType)
+		argIndex++
+	}
+
+	if query.EntityID != "" {
+		sqlQuery += fmt.Sprintf(" AND entity_id = $%d", argIndex)
+		args = append(args, query.EntityID)
+		argIndex++
+	}
+
+	if !query.FromTimestamp.IsZero() {
+		sqlQuery += fmt.Sprintf(" AND timestamp >= $%d", argIndex)
+		args = append(args, query.FromTimestamp)
+		argIndex++
+	}
+
+	if !query.ToTimestamp.IsZero() {
+		sqlQuery += fmt.Sprintf(" AND timestamp <= $%d", argIndex)
+		args = append(args, query.ToTimestamp)
+		argIndex++
+	}
+
+	// Get total count
+	countQuery := strings.Replace(sqlQuery, "SELECT \n\t\t\tid, action_type, username, client_id, \n\t\t\tentity_type, entity_id, details, ip_address, timestamp", "SELECT COUNT(*)", 1)
+	var totalCount int
+	err := s.pool.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count audit logs: %w", err)
+	}
+
+	// Add order and limit
+	sqlQuery += " ORDER BY timestamp DESC"
+
+	// Apply limit and offset
+	limit := 100 // Default limit
+	if query.Limit > 0 {
+		limit = query.Limit
+	}
+
+	sqlQuery += fmt.Sprintf(" LIMIT $%d", argIndex)
+	args = append(args, limit)
+	argIndex++
+
+	if query.Offset > 0 {
+		sqlQuery += fmt.Sprintf(" OFFSET $%d", argIndex)
+		args = append(args, query.Offset)
+		argIndex++
+	}
+
+	// Execute query
+	rows, err := s.pool.Query(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query audit logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []AuditLog
+	for rows.Next() {
+		var log AuditLog
+		if err := rows.Scan(
+			&log.ID,
+			&log.ActionType,
+			&log.Username,
+			&log.ClientID,
+			&log.EntityType,
+			&log.EntityID,
+			&log.Details,
+			&log.IPAddress,
+			&log.Timestamp,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan audit log row: %w", err)
+		}
+		logs = append(logs, log)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating audit log rows: %w", err)
+	}
+
+	// Calculate if there are more results
+	hasMore := totalCount > query.Offset+len(logs)
+	nextOffset := 0
+	if hasMore {
+		nextOffset = query.Offset + len(logs)
+	}
+
+	return &AuditLogPage{
+		Logs:       logs,
+		TotalCount: totalCount,
+		HasMore:    hasMore,
+		NextOffset: nextOffset,
+	}, nil
 }

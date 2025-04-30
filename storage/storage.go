@@ -1,6 +1,9 @@
 package storage
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Message represents a stored MQTT message
 type Message struct {
@@ -47,6 +50,39 @@ type MessagesPage struct {
 	NextOffset int       `json:"next_offset,omitempty"`
 }
 
+// AuditLog represents an entry in the audit log
+type AuditLog struct {
+	ID         int64
+	ActionType string
+	Username   string
+	ClientID   string
+	EntityType string
+	EntityID   string
+	Details    json.RawMessage
+	IPAddress  string
+	Timestamp  time.Time
+}
+
+// AuditLogQuery represents query parameters for filtering audit logs
+type AuditLogQuery struct {
+	ActionType    string
+	Username      string
+	EntityType    string
+	EntityID      string
+	FromTimestamp time.Time
+	ToTimestamp   time.Time
+	Limit         int
+	Offset        int
+}
+
+// AuditLogPage represents a paginated result of audit logs
+type AuditLogPage struct {
+	Logs       []AuditLog `json:"logs"`
+	TotalCount int        `json:"total_count"`
+	HasMore    bool       `json:"has_more"`
+	NextOffset int        `json:"next_offset,omitempty"`
+}
+
 // Storage defines the interface for storage implementations
 type Storage interface {
 	// Close closes the storage connection
@@ -87,4 +123,10 @@ type Storage interface {
 
 	// DeletePermission deletes a permission entry
 	DeletePermission(username, topicPattern string) error
+
+	// LogAction logs an action to the audit log
+	LogAction(log *AuditLog) error
+
+	// GetAuditLogs retrieves audit logs based on query parameters
+	GetAuditLogs(query AuditLogQuery) (*AuditLogPage, error)
 }

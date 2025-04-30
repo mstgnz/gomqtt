@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -109,6 +111,7 @@ func (s *Server) setupRoutes() {
 	s.Router.Get("/clients", s.handleClients())
 	s.Router.Get("/messages", s.handleMessages())
 	s.Router.Get("/settings", s.handleSettings())
+	s.Router.Get("/audit", s.handleAuditLogs())
 
 	// Add new visualization API endpoints
 	s.Router.HandleFunc("/api/dashboard/stats", s.handleDashboardStats)
@@ -116,6 +119,10 @@ func (s *Server) setupRoutes() {
 	s.Router.HandleFunc("/api/dashboard/topic-tree", s.handleTopicTree)
 	s.Router.HandleFunc("/api/dashboard/topic-heatmap", s.handleTopicHeatmap)
 	s.Router.HandleFunc("/api/dashboard/connection-map", s.handleConnectionMap)
+
+	// Audit logs API
+	s.Router.HandleFunc("/api/audit/logs", s.handleAuditLogsData)
+	s.Router.HandleFunc("/api/audit/chart", s.handleAuditLogsChart)
 }
 
 // loadTemplates loads all HTML templates used by the admin interface
@@ -127,6 +134,7 @@ func (s *Server) loadTemplates() {
 		"clients",
 		"messages",
 		"settings",
+		"audit",
 	}
 
 	// Load each template
@@ -435,6 +443,212 @@ func (s *Server) handleConnectionMap(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(connections)
+}
+
+// handleAuditLogs renders the audit logs page
+func (s *Server) handleAuditLogs() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Render the audit logs template
+		s.render(w, "audit", nil)
+	}
+}
+
+// handleAuditLogsData handles retrieving audit logs with filtering
+func (s *Server) handleAuditLogsData(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	query := storage.AuditLogQuery{
+		ActionType: r.URL.Query().Get("action_type"),
+		Username:   r.URL.Query().Get("username"),
+		EntityType: r.URL.Query().Get("entity_type"),
+		EntityID:   r.URL.Query().Get("entity_id"),
+	}
+
+	// Parse time range
+	if from := r.URL.Query().Get("from"); from != "" {
+		if t, err := time.Parse(time.RFC3339, from); err == nil {
+			query.FromTimestamp = t
+		}
+	}
+
+	if to := r.URL.Query().Get("to"); to != "" {
+		if t, err := time.Parse(time.RFC3339, to); err == nil {
+			query.ToTimestamp = t
+		}
+	}
+
+	// Parse pagination
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		if l, err := strconv.Atoi(limit); err == nil && l > 0 {
+			query.Limit = l
+		}
+	}
+
+	if offset := r.URL.Query().Get("offset"); offset != "" {
+		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
+			query.Offset = o
+		}
+	}
+
+	// Get audit logs from storage
+	logs, err := s.Storage.GetAuditLogs(query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to retrieve audit logs: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Return the audit logs as JSON
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(logs); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
+}
+
+// AuditChartData represents data for audit log charts
+type AuditChartData struct {
+	Labels   []string `json:"labels"`
+	Datasets []struct {
+		Label string `json:"label"`
+		Data  []int  `json:"data"`
+	} `json:"datasets"`
+}
+
+// handleAuditLogsChart handles generating chart data for audit logs
+func (s *Server) handleAuditLogsChart(w http.ResponseWriter, r *http.Request) {
+	// Parse time range for chart
+	now := time.Now()
+	from := now.Add(-7 * 24 * time.Hour) // Default to last 7 days
+
+	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+		if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
+			from = t
+		}
+	}
+
+	to := now
+	if toStr := r.URL.Query().Get("to"); toStr != "" {
+		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
+			to = t
+		}
+	}
+
+	// Select chart type
+	chartType := r.URL.Query().Get("type")
+	if chartType == "" {
+		chartType = "action" // Default to action type chart
+	}
+
+	var chartData AuditChartData
+
+	// Get base query with time range
+	query := storage.AuditLogQuery{
+		FromTimestamp: from,
+		ToTimestamp:   to,
+		Limit:         1000, // Increase limit for chart data
+	}
+
+	// Get all logs for the time period
+	logs, err := s.Storage.GetAuditLogs(query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to retrieve audit logs: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Process logs based on chart type
+	switch chartType {
+	case "action":
+		// Count by action type
+		actionCounts := make(map[string]int)
+		for _, log := range logs.Logs {
+			actionCounts[log.ActionType]++
+		}
+
+		// Convert to chart data
+		labels := make([]string, 0, len(actionCounts))
+		data := make([]int, 0, len(actionCounts))
+
+		for action, count := range actionCounts {
+			labels = append(labels, action)
+			data = append(data, count)
+		}
+
+		chartData.Labels = labels
+		chartData.Datasets = []struct {
+			Label string `json:"label"`
+			Data  []int  `json:"data"`
+		}{
+			{
+				Label: "Actions",
+				Data:  data,
+			},
+		}
+
+	case "entity":
+		// Count by entity type
+		entityCounts := make(map[string]int)
+		for _, log := range logs.Logs {
+			entityCounts[log.EntityType]++
+		}
+
+		// Convert to chart data
+		labels := make([]string, 0, len(entityCounts))
+		data := make([]int, 0, len(entityCounts))
+
+		for entity, count := range entityCounts {
+			labels = append(labels, entity)
+			data = append(data, count)
+		}
+
+		chartData.Labels = labels
+		chartData.Datasets = []struct {
+			Label string `json:"label"`
+			Data  []int  `json:"data"`
+		}{
+			{
+				Label: "Entity Types",
+				Data:  data,
+			},
+		}
+
+	case "time":
+		// Group by day
+		dateCounts := make(map[string]int)
+
+		// Create a map to store counts by day
+		for _, log := range logs.Logs {
+			dateStr := log.Timestamp.Format("2006-01-02")
+			dateCounts[dateStr]++
+		}
+
+		// Sort dates
+		dates := make([]string, 0, len(dateCounts))
+		for date := range dateCounts {
+			dates = append(dates, date)
+		}
+		sort.Strings(dates)
+
+		// Create datasets
+		data := make([]int, len(dates))
+		for i, date := range dates {
+			data[i] = dateCounts[date]
+		}
+
+		chartData.Labels = dates
+		chartData.Datasets = []struct {
+			Label string `json:"label"`
+			Data  []int  `json:"data"`
+		}{
+			{
+				Label: "Actions per Day",
+				Data:  data,
+			},
+		}
+	}
+
+	// Return chart data as JSON
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(chartData); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // Helper functions for system metrics
