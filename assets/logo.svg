@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg width="160" height="60" viewBox="0 0 160 60" xmlns="http://www.w3.org/2000/svg">
-    <!-- Background rectangle with rounded corners, like the badges -->
-    <rect x="10" y="10" width="140" height="40" rx="6" ry="6" fill="#0096FF" />
+<svg width="100" height="20" viewBox="0 0 100 20" xmlns="http://www.w3.org/2000/svg">
+    <!-- Container for the entire badge to ensure proper layout -->
+    <g>
+        <!-- Left part (Go) - dark gray like the Go badge -->
+        <rect x="0" y="0" width="40" height="20" rx="3" ry="3" fill="#444444" />
 
-    <!-- Left part (darker) -->
-    <rect x="10" y="10" width="50" height="40" rx="6" ry="6" fill="#007acc" />
+        <!-- Right part (MQTT) - Go blue color -->
+        <rect x="35" y="0" width="50" height="20" rx="3" ry="3" fill="#00ADD8" />
 
-    <!-- Text in left part -->
-    <text x="35" y="35" font-family="Arial, sans-serif" font-size="16" font-weight="bold"
-        text-anchor="middle" fill="white">Go</text>
+        <!-- Clip the right corners of the left rectangle -->
+        <rect x="40" y="0" width="4" height="20" fill="#00ADD8" />
 
-    <!-- Text in right part -->
-    <text x="105" y="35" font-family="Arial, sans-serif" font-size="16" font-weight="bold"
-        text-anchor="middle" fill="white">MQTT</text>
+        <!-- Text elements -->
+        <text x="20" y="14" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11"
+            text-anchor="middle" fill="white">Go</text>
+        <text x="60" y="14" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11"
+            text-anchor="middle" fill="white">MQTT</text>
+    </g>
 </svg> 

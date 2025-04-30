@@ -1,9 +1,6 @@
 # 🛰️ GoMQTT - Modern, Scalable, Lightweight MQTT Broker
 
-<p align="center">
-  <img src="assets/logo.svg" width="150" height="150" alt="GoMQTT Logo">
-</p>
-
+[![GoMqtt](assets/logo.svg)](#)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
