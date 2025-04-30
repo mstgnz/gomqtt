@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mstgnz/gomqtt/admin"
+	"github.com/mstgnz/gomqtt/api"
 	"github.com/mstgnz/gomqtt/auth"
 	"github.com/mstgnz/gomqtt/cluster"
-	"github.com/mstgnz/gomqtt/cmd/admin"
-	"github.com/mstgnz/gomqtt/cmd/api"
 	"github.com/mstgnz/gomqtt/config"
 	"github.com/mstgnz/gomqtt/metrics"
 	"github.com/mstgnz/gomqtt/mqtt"
@@ -280,7 +280,7 @@ func main() {
 
 	// Create Admin Panel
 	adminAddr := fmt.Sprintf("%s:%d", cfg.API.Host, 8081) // Admin panel on port 8081
-	adminServer := admin.NewServer(adminAddr, "web/templates", store)
+	adminServer := admin.NewServer(adminAddr, "admin/template", store)
 
 	// Initialize metrics server if enabled
 	var metricsServer *metrics.Server

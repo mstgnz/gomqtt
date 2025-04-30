@@ -100,8 +100,8 @@ func (s *Server) loadTemplates() {
 	for _, tmpl := range templates {
 		// Parse both layout and content template into a named template
 		templateFiles := []string{
-			filepath.Join(s.TemplateDir, "layout.html"),
-			filepath.Join(s.TemplateDir, tmpl+".html"),
+			filepath.Join(s.TemplateDir, "view", "layout.html"),
+			filepath.Join(s.TemplateDir, "view", tmpl+".html"),
 		}
 
 		// Create template with a proper name

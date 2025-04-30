@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -80,6 +81,9 @@ func (s *Server) setupRoutes() {
 
 	// Health check endpoint
 	s.Router.Get("/health", s.handleHealthCheck())
+
+	// Scalar API documentation endpoint
+	s.Router.Get("/scalar.yaml", s.handleScalarYaml())
 
 	// API routes
 	s.Router.Route("/api", func(r chi.Router) {
@@ -166,11 +170,18 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 // handleHome handles the root endpoint
 func (s *Server) handleHome() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"message": "GoMQTT API Server",
-			"version": "0.1.0",
-		})
+		// Set the content type to HTML
+		w.Header().Set("Content-Type", "text/html")
+
+		// Try to read the scalar.html file
+		content, err := os.ReadFile("api/scalar.html")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read Scalar documentation: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Write the content to the response
+		w.Write(content)
 	}
 }
 
@@ -1421,5 +1432,23 @@ func (s *Server) handleHealthCheck() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(healthStatus)
+	}
+}
+
+// handleScalarYaml handles the serving of the scalar.yaml file
+func (s *Server) handleScalarYaml() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Set the content type to YAML
+		w.Header().Set("Content-Type", "application/x-yaml")
+
+		// Try to read the scalar.yaml file
+		content, err := os.ReadFile("scalar.yaml")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read Scalar YAML file: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Write the content to the response
+		w.Write(content)
 	}
 }

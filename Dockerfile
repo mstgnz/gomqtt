@@ -8,10 +8,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o gomqtt ./cmd/main
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /app
-COPY --from=builder /app/gomqtt .
-COPY --from=builder /app/web/templates /app/web/templates
-COPY --from=builder /app/web/static /app/web/static
-COPY --from=builder /app/config/default.json /app/config/config.json
+COPY --from=builder /app/ /app/
 RUN mkdir -p /app/plugins
 
 EXPOSE 1883
