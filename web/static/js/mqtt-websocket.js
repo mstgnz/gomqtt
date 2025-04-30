@@ -12,12 +12,12 @@
 // MQTT Broker WebSocket configuration
 const mqttConfig = {
   host: window.location.hostname || 'localhost',
-  port: 9001,
+  port: window.location.protocol === 'https:' ? 9443 : 9001, // Use secure port for HTTPS
   path: '/mqtt',
   clientId: 'browser_' + Math.random().toString(16).substr(2, 8),
   username: '', // Set if authentication is required
   password: '', // Set if authentication is required
-  useSSL: false,
+  useSSL: window.location.protocol === 'https:', // Auto-detect SSL based on page protocol
   reconnect: true,
   keepAliveInterval: 60,
   timeout: 5
@@ -30,7 +30,12 @@ let mqttClient = null;
  * Connect to the MQTT broker via WebSocket
  */
 function connectMQTT() {
-  // Create a client instance
+  // Create a client instance - use WebSocket URI format
+  const wsProtocol = mqttConfig.useSSL ? 'wss' : 'ws';
+  const mqttUrl = `${wsProtocol}://${mqttConfig.host}:${mqttConfig.port}${mqttConfig.path}`;
+  
+  console.log(`Connecting to MQTT broker at ${mqttUrl}`);
+  
   mqttClient = new Paho.MQTT.Client(
     mqttConfig.host,
     mqttConfig.port,
@@ -62,6 +67,7 @@ function connectMQTT() {
   // Use TLS if needed
   if (mqttConfig.useSSL) {
     options.useSSL = true;
+    console.log('Using secure WebSocket connection (WSS)');
   }
   
   mqttClient.connect(options);

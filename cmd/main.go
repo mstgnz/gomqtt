@@ -87,6 +87,22 @@ func main() {
 	// Set auth service for permission checking
 	mqttServer.SetAuthService(authService)
 
+	// Enable TLS/MQTTS if configured
+	if cfg.MQTT.TLS.Enabled {
+		mqttServer.EnableTLS(
+			cfg.MQTT.TLS.Port,
+			cfg.MQTT.TLS.CertFile,
+			cfg.MQTT.TLS.KeyFile,
+		)
+
+		// Enable client certificate verification if configured
+		if cfg.MQTT.TLS.RequireClientCert && cfg.MQTT.TLS.CACertFile != "" {
+			mqttServer.EnableClientCertVerification(cfg.MQTT.TLS.CACertFile)
+		}
+
+		log.Printf("TLS/MQTTS enabled on port %d", cfg.MQTT.TLS.Port)
+	}
+
 	// Enable WebSocket support if configured
 	if cfg.MQTT.WebSocket.Enabled {
 		mqttServer.EnableWebSocket(
@@ -98,6 +114,17 @@ func main() {
 			cfg.MQTT.WebSocket.Host,
 			cfg.MQTT.WebSocket.Port,
 			cfg.MQTT.WebSocket.Path)
+	}
+
+	// Enable Secure WebSocket (WSS) if configured
+	if cfg.MQTT.WebSocket.TLS.Enabled {
+		mqttServer.EnableSecureWebSocket(
+			cfg.MQTT.WebSocket.TLS.Port,
+			cfg.MQTT.WebSocket.TLS.CertFile,
+			cfg.MQTT.WebSocket.TLS.KeyFile,
+		)
+		log.Printf("Secure WebSocket (WSS) transport enabled on port %d",
+			cfg.MQTT.WebSocket.TLS.Port)
 	}
 
 	// Set storage service for message persistence if available

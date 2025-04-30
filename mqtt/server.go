@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -23,18 +26,38 @@ type Server struct {
 	Host string
 	Port int
 
+	// TLS configuration
+	TLSEnabled           bool
+	TLSPort              int
+	TLSCertFile          string
+	TLSKeyFile           string
+	TLSRequireClientCert bool
+	TLSCACertFile        string
+
 	// WebSocket configuration
 	WSEnabled bool
 	WSHost    string
 	WSPort    int
 	WSPath    string
 
+	// Secure WebSocket configuration
+	WSSTLSEnabled  bool
+	WSSTLSPort     int
+	WSSTLSCertFile string
+	WSSTLSKeyFile  string
+
 	// TCP listener
 	listener net.Listener
+
+	// TLS listener
+	tlsListener net.Listener
 
 	// WebSocket listener
 	wsServer   *http.Server
 	wsUpgrader *websocket.Upgrader
+
+	// Secure WebSocket listener
+	wssServer *http.Server
 
 	// Client management
 	clients      map[string]*Client
@@ -105,10 +128,14 @@ func NewServer(host string, port int) *Server {
 	return &Server{
 		Host:                host,
 		Port:                port,
+		TLSEnabled:          false,
+		TLSPort:             8883,
 		WSEnabled:           false,   // WebSocket disabled by default
 		WSHost:              host,    // Default to same host as TCP
 		WSPort:              9001,    // Default WebSocket port for MQTT
 		WSPath:              "/mqtt", // Default WebSocket path
+		WSSTLSEnabled:       false,
+		WSSTLSPort:          9443,
 		clients:             make(map[string]*Client),
 		subscriptions:       make(map[string][]*Subscription),
 		retainedMessages:    make(map[string]RetainedMessage),
@@ -121,6 +148,28 @@ func NewServer(host string, port int) *Server {
 			},
 		},
 	}
+}
+
+// EnableTLS enables TLS support for secure MQTT connections (MQTTS)
+func (s *Server) EnableTLS(port int, certFile, keyFile string) {
+	s.TLSEnabled = true
+
+	if port > 0 {
+		s.TLSPort = port
+	}
+
+	s.TLSCertFile = certFile
+	s.TLSKeyFile = keyFile
+
+	log.Printf("TLS transport enabled on %s:%d", s.Host, s.TLSPort)
+}
+
+// EnableClientCertVerification enables client certificate verification (mutual TLS)
+func (s *Server) EnableClientCertVerification(caCertFile string) {
+	s.TLSRequireClientCert = true
+	s.TLSCACertFile = caCertFile
+
+	log.Printf("Client certificate verification enabled with CA file: %s", caCertFile)
 }
 
 // EnableWebSocket enables WebSocket support for the MQTT server
@@ -142,6 +191,20 @@ func (s *Server) EnableWebSocket(host string, port int, path string) {
 	log.Printf("WebSocket transport enabled on %s:%d%s", s.WSHost, s.WSPort, s.WSPath)
 }
 
+// EnableSecureWebSocket enables secure WebSocket (WSS) support for the MQTT server
+func (s *Server) EnableSecureWebSocket(port int, certFile, keyFile string) {
+	s.WSSTLSEnabled = true
+
+	if port > 0 {
+		s.WSSTLSPort = port
+	}
+
+	s.WSSTLSCertFile = certFile
+	s.WSSTLSKeyFile = keyFile
+
+	log.Printf("Secure WebSocket transport enabled on %s:%d%s", s.WSHost, s.WSSTLSPort, s.WSPath)
+}
+
 // Start starts the MQTT server (both TCP and WebSocket if enabled)
 func (s *Server) Start() error {
 	// Start TCP server
@@ -151,6 +214,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to start MQTT TCP server: %w", err)
 	}
 	s.listener = listener
+
+	// Start TLS server if enabled
+	if s.TLSEnabled {
+		go s.startTLSServer()
+	}
 
 	// Start message retry mechanism
 	s.startMessageRetry()
@@ -162,11 +230,76 @@ func (s *Server) Start() error {
 		go s.startWebSocketServer()
 	}
 
+	// Start Secure WebSocket server if enabled
+	if s.WSSTLSEnabled {
+		go s.startSecureWebSocketServer()
+	}
+
 	// Accept TCP connections
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("Error accepting TCP connection: %v\n", err)
+			continue
+		}
+
+		go s.handleConnection(conn)
+	}
+}
+
+// startTLSServer starts the TLS server for secure MQTT connections
+func (s *Server) startTLSServer() {
+	// Load TLS certificate
+	cert, err := tls.LoadX509KeyPair(s.TLSCertFile, s.TLSKeyFile)
+	if err != nil {
+		log.Printf("Error loading TLS certificate: %v\n", err)
+		return
+	}
+
+	// Configure TLS
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// Set up client certificate verification if enabled
+	if s.TLSRequireClientCert {
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+
+		// Load CA certificate for client cert verification
+		if s.TLSCACertFile != "" {
+			caCert, err := os.ReadFile(s.TLSCACertFile)
+			if err != nil {
+				log.Printf("Error loading CA certificate: %v\n", err)
+				return
+			}
+
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCert) {
+				log.Printf("Failed to append CA certificate to pool\n")
+				return
+			}
+
+			tlsConfig.ClientCAs = caCertPool
+		}
+	}
+
+	// Start TLS listener
+	tlsAddr := fmt.Sprintf("%s:%d", s.Host, s.TLSPort)
+	tlsListener, err := tls.Listen("tcp", tlsAddr, tlsConfig)
+	if err != nil {
+		log.Printf("Error starting TLS server: %v\n", err)
+		return
+	}
+	s.tlsListener = tlsListener
+
+	log.Printf("MQTT server (TLS) started on %s\n", tlsAddr)
+
+	// Accept TLS connections
+	for {
+		conn, err := tlsListener.Accept()
+		if err != nil {
+			log.Printf("Error accepting TLS connection: %v\n", err)
 			continue
 		}
 
@@ -195,6 +328,27 @@ func (s *Server) startWebSocketServer() {
 	}
 }
 
+// startSecureWebSocketServer starts the WebSocket server with TLS
+func (s *Server) startSecureWebSocketServer() {
+	// Define WebSocket handler
+	handler := http.NewServeMux()
+	handler.HandleFunc(s.WSPath, s.handleWebSocket)
+
+	// Create HTTPS server
+	wssAddr := fmt.Sprintf("%s:%d", s.WSHost, s.WSSTLSPort)
+	s.wssServer = &http.Server{
+		Addr:    wssAddr,
+		Handler: handler,
+	}
+
+	log.Printf("MQTT server (Secure WebSocket) started on %s%s\n", wssAddr, s.WSPath)
+
+	// Start HTTPS server for secure WebSocket
+	if err := s.wssServer.ListenAndServeTLS(s.WSSTLSCertFile, s.WSSTLSKeyFile); err != nil && err != http.ErrServerClosed {
+		log.Printf("Error starting Secure WebSocket server: %v\n", err)
+	}
+}
+
 // handleWebSocket handles WebSocket connection upgrade and wraps it as a net.Conn
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade connection to WebSocket
@@ -213,13 +367,23 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.handleConnection(conn)
 }
 
-// Stop stops the MQTT server (both TCP and WebSocket)
+// Stop stops the MQTT server (TCP, TLS, and WebSocket servers)
 func (s *Server) Stop() error {
 	var err error
 
 	// Stop TCP listener
 	if s.listener != nil {
 		err = s.listener.Close()
+	}
+
+	// Stop TLS listener
+	if s.TLSEnabled && s.tlsListener != nil {
+		if tlsErr := s.tlsListener.Close(); tlsErr != nil {
+			log.Printf("Error closing TLS listener: %v", tlsErr)
+			if err == nil {
+				err = tlsErr
+			}
+		}
 	}
 
 	// Stop WebSocket server
@@ -229,6 +393,19 @@ func (s *Server) Stop() error {
 
 		if shutdownErr := s.wsServer.Shutdown(ctx); shutdownErr != nil {
 			log.Printf("Error shutting down WebSocket server: %v", shutdownErr)
+			if err == nil {
+				err = shutdownErr
+			}
+		}
+	}
+
+	// Stop Secure WebSocket server
+	if s.WSSTLSEnabled && s.wssServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if shutdownErr := s.wssServer.Shutdown(ctx); shutdownErr != nil {
+			log.Printf("Error shutting down Secure WebSocket server: %v", shutdownErr)
 			if err == nil {
 				err = shutdownErr
 			}

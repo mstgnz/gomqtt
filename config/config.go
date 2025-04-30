@@ -18,12 +18,30 @@ type Config struct {
 		MaxQueueSize    int    `json:"max_queue_size"`
 		RetainAvailable bool   `json:"retain_available"`
 
+		// TLS/MQTTS configuration
+		TLS struct {
+			Enabled           bool   `json:"enabled"`
+			Port              int    `json:"port"`
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			RequireClientCert bool   `json:"require_client_cert"`
+			CACertFile        string `json:"ca_cert_file"`
+		} `json:"tls"`
+
 		// WebSocket configuration
 		WebSocket struct {
 			Enabled bool   `json:"enabled"`
 			Host    string `json:"host"`
 			Port    int    `json:"port"`
 			Path    string `json:"path"`
+
+			// Secure WebSocket (WSS)
+			TLS struct {
+				Enabled  bool   `json:"enabled"`
+				Port     int    `json:"port"`
+				CertFile string `json:"cert_file"`
+				KeyFile  string `json:"key_file"`
+			} `json:"tls"`
 		} `json:"websocket"`
 	} `json:"mqtt"`
 
@@ -80,11 +98,25 @@ func DefaultConfig() *Config {
 	cfg.MQTT.MaxQueueSize = 100
 	cfg.MQTT.RetainAvailable = true
 
+	// TLS/MQTTS defaults
+	cfg.MQTT.TLS.Enabled = false
+	cfg.MQTT.TLS.Port = 8883 // MQTT TLS standard port
+	cfg.MQTT.TLS.CertFile = "certs/server.crt"
+	cfg.MQTT.TLS.KeyFile = "certs/server.key"
+	cfg.MQTT.TLS.RequireClientCert = false
+	cfg.MQTT.TLS.CACertFile = "certs/ca.crt"
+
 	// WebSocket defaults
 	cfg.MQTT.WebSocket.Enabled = true
 	cfg.MQTT.WebSocket.Host = "0.0.0.0"
 	cfg.MQTT.WebSocket.Port = 9001
 	cfg.MQTT.WebSocket.Path = "/mqtt"
+
+	// Secure WebSocket defaults
+	cfg.MQTT.WebSocket.TLS.Enabled = false
+	cfg.MQTT.WebSocket.TLS.Port = 9443 // Custom port for secure WebSockets
+	cfg.MQTT.WebSocket.TLS.CertFile = "certs/server.crt"
+	cfg.MQTT.WebSocket.TLS.KeyFile = "certs/server.key"
 
 	// API defaults
 	cfg.API.Enabled = true
