@@ -34,6 +34,13 @@ type ClientInfo struct {
 	ConnectTime time.Time
 }
 
+// Permission represents a permission for API responses
+type Permission struct {
+	Username     string `json:"username"`
+	TopicPattern string `json:"topic_pattern"`
+	AccessLevel  string `json:"access_level"`
+}
+
 // NewPostgresStorage creates a new PostgreSQL storage instance
 func NewPostgresStorage(connString string) (*PostgresStorage, error) {
 	config, err := pgxpool.ParseConfig(connString)
@@ -124,6 +131,21 @@ func (s *PostgresStorage) initSchema() error {
 		return fmt.Errorf("failed to create subscriptions table: %w", err)
 	}
 
+	// Create permissions table
+	_, err = tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS permissions (
+			id SERIAL PRIMARY KEY,
+			username TEXT NOT NULL,
+			topic_pattern TEXT NOT NULL,
+			access_level INTEGER NOT NULL,
+			created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			UNIQUE(username, topic_pattern)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create permissions table: %w", err)
+	}
+
 	return tx.Commit(ctx)
 }
 
@@ -187,4 +209,66 @@ func (s *PostgresStorage) UpdateClientConnection(clientID, username string, conn
 		`, now, connected, clientID)
 		return err
 	}
+}
+
+// GetAllPermissions retrieves all permissions from the database
+func (s *PostgresStorage) GetAllPermissions() ([]Permission, error) {
+	rows, err := s.pool.Query(context.Background(), `
+		SELECT username, topic_pattern, access_level
+		FROM permissions
+		ORDER BY username, topic_pattern
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var permissions []Permission
+	for rows.Next() {
+		var perm Permission
+		var accessLevelInt int
+		err := rows.Scan(&perm.Username, &perm.TopicPattern, &accessLevelInt)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert access level integer to string
+		switch accessLevelInt {
+		case 0:
+			perm.AccessLevel = "read_only"
+		case 1:
+			perm.AccessLevel = "read_write"
+		case 2:
+			perm.AccessLevel = "admin"
+		default:
+			perm.AccessLevel = "unknown"
+		}
+
+		permissions = append(permissions, perm)
+	}
+
+	return permissions, nil
+}
+
+// StorePermission stores a permission in the database
+func (s *PostgresStorage) StorePermission(username, topicPattern string, accessLevel int) error {
+	_, err := s.pool.Exec(context.Background(), `
+		INSERT INTO permissions (username, topic_pattern, access_level)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (username, topic_pattern) 
+		DO UPDATE SET 
+			access_level = EXCLUDED.access_level
+	`, username, topicPattern, accessLevel)
+
+	return err
+}
+
+// DeletePermission removes a permission from the database
+func (s *PostgresStorage) DeletePermission(username, topicPattern string) error {
+	_, err := s.pool.Exec(context.Background(), `
+		DELETE FROM permissions
+		WHERE username = $1 AND topic_pattern = $2
+	`, username, topicPattern)
+
+	return err
 }

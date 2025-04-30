@@ -21,6 +21,11 @@
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="permissions-tab" data-bs-toggle="tab" data-bs-target="#permissions" type="button" role="tab" aria-controls="permissions" aria-selected="false">
+                            Permissions
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
                         <button class="nav-link" id="plugins-tab" data-bs-toggle="tab" data-bs-target="#plugins" type="button" role="tab" aria-controls="plugins" aria-selected="false">
                             Plugins
                         </button>
@@ -78,6 +83,73 @@
                             </div>
                             <button type="submit" class="btn btn-primary">Save Security Settings</button>
                         </form>
+                    </div>
+                    
+                    <!-- Permissions Settings -->
+                    <div class="tab-pane fade" id="permissions" role="tabpanel" aria-labelledby="permissions-tab">
+                        <div class="row mb-4">
+                            <div class="col-md-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Add New Permission</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <form id="add-permission-form" hx-post="/api/permissions" hx-swap="none" hx-trigger="submit" hx-target="#permissions-table">
+                                            <div class="row">
+                                                <div class="col-md-4 mb-3">
+                                                    <label for="username" class="form-label">Username</label>
+                                                    <input type="text" class="form-control" id="username" name="username" required>
+                                                </div>
+                                                <div class="col-md-4 mb-3">
+                                                    <label for="topic-pattern" class="form-label">Topic Pattern</label>
+                                                    <input type="text" class="form-control" id="topic-pattern" name="topic_pattern" placeholder="sensor/#" required>
+                                                    <small class="text-muted">Use # or + wildcards</small>
+                                                </div>
+                                                <div class="col-md-4 mb-3">
+                                                    <label for="access-level" class="form-label">Access Level</label>
+                                                    <select class="form-select" id="access-level" name="access_level" required>
+                                                        <option value="read_only">Read Only</option>
+                                                        <option value="read_write">Read Write</option>
+                                                        <option value="admin">Admin</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex justify-content-end">
+                                                <button type="submit" class="btn btn-primary" hx-target="#permissions-table" 
+                                                  hx-indicator="#permission-spinner">Add Permission</button>
+                                                <span id="permission-spinner" class="htmx-indicator spinner-border spinner-border-sm ms-2" role="status"></span>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h5 class="mt-4">Current Permissions</h5>
+                        <div id="permissions-table" hx-get="/api/permissions" hx-trigger="load, permission-change from:body" hx-swap="innerHTML">
+                            <div class="text-center my-5">
+                                <div class="spinner-border" role="status">
+                                    <span class="visually-hidden">Loading permissions...</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Template for permissions table -->
+                        <template id="permissions-template">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Username</th>
+                                        <th>Topic Pattern</th>
+                                        <th>Access Level</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Rows will be inserted here -->
+                                </tbody>
+                            </table>
+                        </template>
                     </div>
                     
                     <!-- Plugins Settings -->
@@ -152,4 +224,66 @@
         </div>
     </div>
 </div>
+
+<script>
+    // Permissions management script
+    document.addEventListener('htmx:afterOnLoad', function(event) {
+        if (event.detail.elt.id === 'permissions-table') {
+            const data = JSON.parse(event.detail.xhr.responseText);
+            renderPermissionsTable(data);
+        }
+    });
+    
+    document.addEventListener('htmx:afterRequest', function(event) {
+        if (event.detail.elt.id === 'add-permission-form') {
+            // Refresh the permissions table
+            document.body.dispatchEvent(new CustomEvent('permission-change'));
+            // Clear the form
+            event.detail.elt.reset();
+        }
+    });
+    
+    function renderPermissionsTable(permissions) {
+        // Clone the template
+        const template = document.getElementById('permissions-template');
+        const table = template.content.cloneNode(true);
+        const tbody = table.querySelector('tbody');
+        
+        if (permissions.length === 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = '<td colspan="4" class="text-center">No permissions defined yet</td>';
+            tbody.appendChild(row);
+        } else {
+            permissions.forEach(perm => {
+                const row = document.createElement('tr');
+                
+                // Readable access level
+                let accessLevel = perm.access_level;
+                switch(accessLevel) {
+                    case 'read_only': accessLevel = 'Read Only'; break;
+                    case 'read_write': accessLevel = 'Read Write'; break;
+                    case 'admin': accessLevel = 'Admin'; break;
+                }
+                
+                row.innerHTML = `
+                    <td>${perm.username}</td>
+                    <td><code>${perm.topic_pattern}</code></td>
+                    <td>${accessLevel}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-danger" 
+                                hx-delete="/api/permissions/${perm.username}/${encodeURIComponent(perm.topic_pattern)}"
+                                hx-confirm="Are you sure you want to delete this permission?"
+                                hx-target="#permissions-table">Delete</button>
+                    </td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+        
+        const permissionsTable = document.getElementById('permissions-table');
+        permissionsTable.innerHTML = '';
+        permissionsTable.appendChild(table);
+    }
+</script>
 {{ end }} 

@@ -41,6 +41,10 @@ type Server struct {
 	// Plugin system
 	pluginRegistry      any // Uses any to avoid circular import
 	pluginRegistryMutex sync.RWMutex
+
+	// Auth service
+	authService      any // Uses any to avoid circular import
+	authServiceMutex sync.RWMutex
 }
 
 // RetainedMessage represents a message that should be stored and sent to new subscribers
@@ -327,6 +331,15 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 	}
 	s.clientsMutex.RUnlock()
 
+	// Check publish permission
+	if err := s.checkTopicPermission(clientID, packet.TopicName, true); err != nil {
+		log.Printf("Permission denied for client %s to publish to topic %s: %v",
+			clientID, packet.TopicName, err)
+		// We can't send an error response for PUBLISH in MQTT 3.1.1
+		// The server just drops the message silently
+		return
+	}
+
 	// Handle retained messages
 	if packet.Retain {
 		s.storeRetainedMessage(packet.TopicName, packet.Payload, packet.Qos)
@@ -533,6 +546,15 @@ func (s *Server) handleSubscribe(conn net.Conn, packet *Packet) {
 		var qos byte = 0
 		if i < len(packet.QoSs) {
 			qos = packet.QoSs[i]
+		}
+
+		// Check subscribe permission (read access)
+		if err := s.checkTopicPermission(clientID, topic, false); err != nil {
+			log.Printf("Permission denied for client %s to subscribe to topic %s: %v",
+				clientID, topic, err)
+			// When permission is denied, we grant QoS 0x80 (subscription failure)
+			grantedQoS = append(grantedQoS, 0x80)
+			continue
 		}
 
 		// Store subscription
@@ -1038,4 +1060,44 @@ func (s *Server) triggerPluginEvent(event string, context map[string]any) {
 		// Call the method
 		triggerMethod.Call([]reflect.Value{ctxValue})
 	}
+}
+
+// SetAuthService sets the auth service to be used for permission checking
+func (s *Server) SetAuthService(auth any) {
+	s.authServiceMutex.Lock()
+	defer s.authServiceMutex.Unlock()
+	s.authService = auth
+}
+
+// checkTopicPermission checks if a client has permission to access a topic
+// If requireWrite is true, checks for write permission, otherwise read permission
+func (s *Server) checkTopicPermission(clientID, topic string, requireWrite bool) error {
+	s.authServiceMutex.RLock()
+	defer s.authServiceMutex.RUnlock()
+
+	if s.authService == nil {
+		// If auth service is not set, allow all operations
+		return nil
+	}
+
+	// Use reflection to call the CheckTopicPermission method on the auth service
+	authValue := reflect.ValueOf(s.authService)
+	method := authValue.MethodByName("CheckTopicPermission")
+
+	if !method.IsValid() {
+		log.Printf("CheckTopicPermission method not found on auth service")
+		return nil
+	}
+
+	results := method.Call([]reflect.Value{
+		reflect.ValueOf(clientID),
+		reflect.ValueOf(topic),
+		reflect.ValueOf(requireWrite),
+	})
+
+	if len(results) > 0 && !results[0].IsNil() {
+		return results[0].Interface().(error)
+	}
+
+	return nil
 }

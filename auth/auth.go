@@ -454,3 +454,39 @@ func topicMatches(pattern, topic string) bool {
 
 	return true
 }
+
+// GetUser returns a user by username
+func (a *Auth) GetUser(username string) (*User, error) {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	user, exists := a.users[username]
+	if !exists {
+		return nil, ErrUserNotFound
+	}
+
+	return user, nil
+}
+
+// RemoveUserPermission removes a permission for a user
+func (a *Auth) RemoveUserPermission(username, topicPattern string) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	// Find the user
+	user, exists := a.users[username]
+	if !exists {
+		return ErrUserNotFound
+	}
+
+	// Find and remove the permission
+	for i, perm := range user.Permissions {
+		if perm.TopicPattern == topicPattern {
+			// Remove this permission
+			user.Permissions = append(user.Permissions[:i], user.Permissions[i+1:]...)
+			return nil
+		}
+	}
+
+	return errors.New("permission not found")
+}

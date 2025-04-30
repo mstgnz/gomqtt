@@ -64,6 +64,14 @@ func (s *Server) setupRoutes() {
 			r.Get("/clients/{clientID}", s.handleGetClient())
 			r.Get("/messages", s.handleListMessages())
 			r.Post("/publish", s.handlePublish())
+
+			// Permission management endpoints
+			r.Route("/permissions", func(r chi.Router) {
+				r.Get("/", s.handleListPermissions())
+				r.Post("/", s.handleCreatePermission())
+				r.Get("/{username}", s.handleGetUserPermissions())
+				r.Delete("/{username}/{topic}", s.handleDeletePermission())
+			})
 		})
 	})
 }
@@ -160,5 +168,152 @@ func (s *Server) handlePublish() http.HandlerFunc {
 		// Implementation will go here
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// PermissionRequest represents a request to add a permission
+type PermissionRequest struct {
+	Username     string      `json:"username"`
+	TopicPattern string      `json:"topic_pattern"`
+	AccessLevel  interface{} `json:"access_level"` // Can be int or string
+}
+
+// PermissionResponse represents a permission for the API
+type PermissionResponse struct {
+	Username     string `json:"username"`
+	TopicPattern string `json:"topic_pattern"`
+	AccessLevel  string `json:"access_level"`
+}
+
+// handleListPermissions handles listing all permissions
+func (s *Server) handleListPermissions() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get all users with their permissions from the storage
+		permissions, err := s.Storage.GetAllPermissions()
+		if err != nil {
+			http.Error(w, "Failed to fetch permissions", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(permissions)
+	}
+}
+
+// handleCreatePermission handles creating a new permission
+func (s *Server) handleCreatePermission() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req PermissionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Validate request
+		if req.Username == "" || req.TopicPattern == "" {
+			http.Error(w, "Missing required fields", http.StatusBadRequest)
+			return
+		}
+
+		// Convert access level to AccessLevel type
+		var accessLevel auth.AccessLevel
+		switch v := req.AccessLevel.(type) {
+		case float64:
+			accessLevel = auth.AccessLevel(int(v))
+		case string:
+			switch v {
+			case "read_only", "ReadOnly":
+				accessLevel = auth.ReadOnly
+			case "read_write", "ReadWrite":
+				accessLevel = auth.ReadWrite
+			case "admin", "Admin":
+				accessLevel = auth.Admin
+			default:
+				http.Error(w, "Invalid access level", http.StatusBadRequest)
+				return
+			}
+		default:
+			http.Error(w, "Invalid access level type", http.StatusBadRequest)
+			return
+		}
+
+		// Add permission
+		err := s.Auth.AddUserPermission(req.Username, req.TopicPattern, accessLevel)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Permission created successfully",
+		})
+	}
+}
+
+// handleGetUserPermissions handles getting permissions for a specific user
+func (s *Server) handleGetUserPermissions() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username := chi.URLParam(r, "username")
+		if username == "" {
+			http.Error(w, "Username is required", http.StatusBadRequest)
+			return
+		}
+
+		// Get user from auth service
+		user, err := s.Auth.GetUser(username)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		// Convert permissions to API format
+		var apiPermissions []PermissionResponse
+		for _, perm := range user.Permissions {
+			var accessLevel string
+			switch perm.AccessLevel {
+			case auth.ReadOnly:
+				accessLevel = "read_only"
+			case auth.ReadWrite:
+				accessLevel = "read_write"
+			case auth.Admin:
+				accessLevel = "admin"
+			}
+
+			apiPermissions = append(apiPermissions, PermissionResponse{
+				Username:     username,
+				TopicPattern: perm.TopicPattern,
+				AccessLevel:  accessLevel,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(apiPermissions)
+	}
+}
+
+// handleDeletePermission handles deleting a permission
+func (s *Server) handleDeletePermission() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username := chi.URLParam(r, "username")
+		topicPattern := chi.URLParam(r, "topic")
+
+		if username == "" || topicPattern == "" {
+			http.Error(w, "Username and topic are required", http.StatusBadRequest)
+			return
+		}
+
+		// Delete permission
+		err := s.Auth.RemoveUserPermission(username, topicPattern)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Permission deleted successfully",
+		})
 	}
 }

@@ -76,6 +76,9 @@ func main() {
 	// Set plugin registry for MQTT server
 	mqttServer.SetPluginRegistry(pluginRegistry)
 
+	// Set auth service for permission checking
+	mqttServer.SetAuthService(authService)
+
 	// Create REST API server
 	apiAddr := fmt.Sprintf("%s:%d", cfg.API.Host, cfg.API.Port)
 	apiServer := api.NewServer(apiAddr, authService, store)
