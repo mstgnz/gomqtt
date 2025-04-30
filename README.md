@@ -90,7 +90,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - [x] Rate limiting
 - [ ] More database options (SQLite, MySQL)
 - [ ] Prometheus metrics
-- [ ] Multi-node deployment with Docker Compose
+- [x] Multi-node deployment with Docker Compose
 - [ ] OAuth2 integration
 - [ ] RBAC (Role-Based Access Control)
 
@@ -126,15 +126,35 @@ To enable clustering, update your configuration file:
 }
 ```
 
-### Running a Cluster
+### Multi-Node Deployment
 
-A cluster can be started using the provided `docker-compose-cluster.yml` file:
+For production environments, GoMQTT provides a ready-to-use multi-node deployment configuration with Docker Compose. This setup includes:
 
-```bash
-docker-compose -f docker-compose-cluster.yml up
-```
+- Multiple GoMQTT nodes forming a cluster
+- HAProxy load balancer for traffic distribution
+- Shared PostgreSQL database for message persistence
+- API Gateway for REST access
+- Admin dashboard for monitoring
 
-This will start a cluster with three nodes, all connected to the same PostgreSQL database for message persistence.
+To deploy a multi-node cluster:
+
+1. Generate TLS certificates:
+   ```bash
+   ./scripts/generate-certs.sh
+   ```
+2. Launch the cluster:
+
+   ```bash
+   docker-compose -f docker-compose-cluster.yml up -d
+   ```
+
+3. Access services:
+   - MQTT: `localhost:1883` (Load balanced)
+   - Admin UI: `http://localhost:8081`
+   - API: `http://localhost:8080`
+   - HAProxy Stats: `http://localhost:8404`
+
+For more details, see [CLUSTER-SETUP.md](CLUSTER-SETUP.md).
 
 ## 🏗️ Connection Options
 

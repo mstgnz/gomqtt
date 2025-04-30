@@ -2,11 +2,38 @@
   "mqtt": {
     "host": "0.0.0.0",
     "port": 1883,
-    "max_connections": 1000,
+    "max_connections": 10000,
     "max_message_size": 16384,
     "allow_anonymous": false,
-    "max_queue_size": 100,
-    "retain_available": true
+    "max_queue_size": 1000,
+    "retain_available": true,
+    "rate_limiting": {
+      "enabled": true,
+      "connect_limit": 5,
+      "publish_limit": 100,
+      "subscribe_limit": 20,
+      "burst_multiplier": 2
+    },
+    "tls": {
+      "enabled": true,
+      "port": 8883,
+      "cert_file": "/app/certs/server.crt",
+      "key_file": "/app/certs/server.key",
+      "require_client_cert": false,
+      "ca_cert_file": "/app/certs/ca.crt"
+    },
+    "websocket": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 9001,
+      "path": "/mqtt",
+      "tls": {
+        "enabled": true,
+        "port": 9443,
+        "cert_file": "/app/certs/server.crt",
+        "key_file": "/app/certs/server.key"
+      }
+    }
   },
   "api": {
     "enabled": true,
@@ -35,19 +62,19 @@
   },
   "storage": {
     "enabled": true,
-    "type": "redis",
+    "type": "postgres",
     "message_retention": 24,
     "cleanup_interval": 6,
     "batch_size": 100
   },
   "plugins": {
     "enabled": true,
-    "directory": "./plugins",
+    "directory": "/app/plugins",
     "autoload": []
   },
   "logging": {
     "level": "info",
-    "format": "text",
+    "format": "json",
     "file": ""
   },
   "cluster": {
@@ -56,7 +83,7 @@
     "node_host": "gomqtt-node2",
     "node_port": 7946,
     "gossip_port": 7947,
-    "seed_nodes": ["gomqtt-node1:7946"],
-    "sync_interval": 10
+    "seed_nodes": ["gomqtt-node1:7946", "gomqtt-node2:7946", "gomqtt-node3:7946"],
+    "sync_interval": 30
   }
 } 
