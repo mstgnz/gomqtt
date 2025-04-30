@@ -1,3 +1,6 @@
+// Package api provides a RESTful HTTP API for the GoMQTT broker.
+// It enables programmatic access to broker functionality including client management,
+// authorization management, message history, and runtime configuration.
 package api
 
 import (
@@ -23,7 +26,9 @@ const (
 	userContextKey contextKey = "user"
 )
 
-// Server represents the REST API server
+// Server represents the REST API server for the MQTT broker.
+// It provides HTTP endpoints for management, monitoring, and integration
+// with external systems.
 type Server struct {
 	Router     chi.Router
 	Auth       *auth.Auth
@@ -33,7 +38,15 @@ type Server struct {
 	httpServer *http.Server
 }
 
-// NewServer creates a new REST API server
+// NewServer creates a new REST API server with the specified configuration.
+//
+// Parameters:
+//   - listenAddr: Network address on which the API server will listen
+//   - authService: Authentication service for validating API credentials
+//   - storage: Storage interface for accessing persistent data
+//
+// Returns:
+//   - A configured API server instance ready to be started
 func NewServer(listenAddr string, authService *auth.Auth, storage storage.Storage) *Server {
 	s := &Server{
 		Router:     chi.NewRouter(),
@@ -53,7 +66,11 @@ func NewServer(listenAddr string, authService *auth.Auth, storage storage.Storag
 	return s
 }
 
-// Start starts the REST API server
+// Start begins the REST API server on the configured listen address.
+// This method blocks until the server is stopped or encounters an error.
+//
+// Returns:
+//   - Any error encountered while starting or running the server
 func (s *Server) Start() error {
 	fmt.Printf("REST API started on %s\n", s.ListenAddr)
 	s.httpServer = &http.Server{
@@ -63,7 +80,11 @@ func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// Stop gracefully shuts down the server with a timeout
+// Stop gracefully shuts down the server with a timeout to allow
+// in-flight requests to complete.
+//
+// Returns:
+//   - Any error encountered during the shutdown process
 func (s *Server) Stop() error {
 	if s.httpServer == nil {
 		return nil
@@ -167,7 +188,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// handleHome handles the root endpoint
+// handleHome handles the root endpoint of the API server.
+// It serves the Scalar API documentation HTML page.
 func (s *Server) handleHome() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set the content type to HTML
@@ -242,14 +264,14 @@ func (s *Server) handlePublish() http.HandlerFunc {
 	}
 }
 
-// PermissionRequest represents a request to add a permission
+// PermissionRequest represents a request to add or modify a permission.
 type PermissionRequest struct {
 	Username     string `json:"username"`
 	TopicPattern string `json:"topic_pattern"`
 	AccessLevel  any    `json:"access_level"` // Can be int or string
 }
 
-// PermissionResponse represents a permission for the API
+// PermissionResponse represents a permission in API responses.
 type PermissionResponse struct {
 	Username     string `json:"username"`
 	TopicPattern string `json:"topic_pattern"`
@@ -609,14 +631,14 @@ func (s *Server) handleGetClientHistory() http.HandlerFunc {
 	}
 }
 
-// UserRequest represents a user creation or update request
+// UserRequest represents a user creation or update request.
 type UserRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	IsAdmin  bool   `json:"is_admin"`
 }
 
-// UserResponse represents a user in API responses
+// UserResponse represents a user in API responses.
 type UserResponse struct {
 	Username    string    `json:"username"`
 	IsAdmin     bool      `json:"is_admin"`
@@ -626,7 +648,7 @@ type UserResponse struct {
 	LastLogin   time.Time `json:"last_login,omitempty"`
 }
 
-// RoleRequest represents a role creation or update request
+// RoleRequest represents a role creation or update request.
 type RoleRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -636,7 +658,7 @@ type RoleRequest struct {
 	} `json:"permissions"`
 }
 
-// RoleResponse represents a role in API responses
+// RoleResponse represents a role in API responses.
 type RoleResponse struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
@@ -1368,12 +1390,16 @@ func (s *Server) handleGetUserRoles() http.HandlerFunc {
 	}
 }
 
-// SetMQTTServer sets the MQTT server reference for health checks
+// SetMQTTServer sets the MQTT server reference for health checks.
+//
+// Parameters:
+//   - mqttServer: Reference to the MQTT server instance
 func (s *Server) SetMQTTServer(mqttServer interface{}) {
 	s.MQTTServer = mqttServer
 }
 
-// handleHealthCheck handles the health check endpoint
+// handleHealthCheck returns an HTTP handler function for the health check endpoint.
+// This endpoint provides status information about the API server and its dependent services.
 func (s *Server) handleHealthCheck() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Health check response structure
@@ -1435,7 +1461,8 @@ func (s *Server) handleHealthCheck() http.HandlerFunc {
 	}
 }
 
-// handleScalarYAML handles the scalar.yaml endpoint
+// handleScalarYAML handles the scalar.yaml endpoint.
+// This endpoint serves the OpenAPI specification file used for API documentation.
 func (s *Server) handleScalarYAML() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set the content type to YAML

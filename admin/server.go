@@ -1,3 +1,6 @@
+// Package admin provides the admin panel web interface for GoMQTT.
+// It includes functionality for visualizing broker statistics, client management,
+// and message monitoring through a browser-based interface.
 package admin
 
 import (
@@ -15,7 +18,8 @@ import (
 	"github.com/mstgnz/gomqtt/storage"
 )
 
-// Server represents the admin panel server
+// Server represents the admin panel server with web UI capabilities
+// for managing and monitoring the MQTT broker.
 type Server struct {
 	Router      chi.Router
 	Storage     storage.Storage
@@ -25,7 +29,15 @@ type Server struct {
 	httpServer  *http.Server
 }
 
-// NewServer creates a new admin panel server
+// NewServer creates a new admin panel server with the specified configuration.
+//
+// Parameters:
+//   - listenAddr: Network address on which the admin server will listen
+//   - templateDir: Directory path containing the HTML templates
+//   - storage: Storage interface for accessing persistent data
+//
+// Returns:
+//   - A configured admin server instance ready to be started
 func NewServer(listenAddr, templateDir string, storage storage.Storage) *Server {
 	s := &Server{
 		Router:      chi.NewRouter(),
@@ -48,7 +60,11 @@ func NewServer(listenAddr, templateDir string, storage storage.Storage) *Server 
 	return s
 }
 
-// Start starts the admin panel server
+// Start begins the admin panel server on the configured listen address.
+// This method blocks until the server is stopped or encounters an error.
+//
+// Returns:
+//   - Any error encountered while starting or running the server
 func (s *Server) Start() error {
 	fmt.Printf("Admin panel started on %s\n", s.ListenAddr)
 	s.httpServer = &http.Server{
@@ -58,7 +74,11 @@ func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// Stop gracefully shuts down the server with a timeout
+// Stop gracefully shuts down the server with a timeout to allow
+// in-flight requests to complete.
+//
+// Returns:
+//   - Any error encountered during the shutdown process
 func (s *Server) Stop() error {
 	if s.httpServer == nil {
 		return nil
@@ -70,7 +90,8 @@ func (s *Server) Stop() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// setupRoutes configures the admin panel routes
+// setupRoutes configures the admin panel routes for different pages
+// and functionality.
 func (s *Server) setupRoutes() {
 	// Static files
 	fileServer := http.FileServer(http.Dir(filepath.Join(s.TemplateDir, "static")))
@@ -86,7 +107,8 @@ func (s *Server) setupRoutes() {
 	s.Router.Get("/settings", s.handleSettings())
 }
 
-// loadTemplates loads all templates
+// loadTemplates loads all HTML templates used by the admin interface
+// from the configured template directory.
 func (s *Server) loadTemplates() {
 	// Define templates to load
 	templates := []string{
@@ -115,7 +137,13 @@ func (s *Server) loadTemplates() {
 	}
 }
 
-// render renders a template with data
+// render executes a template with the provided data and writes the output
+// to the HTTP response writer.
+//
+// Parameters:
+//   - w: HTTP response writer to render the template to
+//   - name: Name of the template to render
+//   - data: Data to pass to the template for rendering
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	tmpl, ok := s.templates[name]
 	if !ok {
@@ -139,7 +167,8 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-// Dashboard data
+// DashboardData contains the statistics and information displayed
+// on the admin dashboard page.
 type DashboardData struct {
 	ActiveClients  int
 	MessageCount   int
@@ -149,14 +178,14 @@ type DashboardData struct {
 	ConnectedSince string
 }
 
-// TopicStats represents stats for a topic
+// TopicStats represents statistics for a specific MQTT topic.
 type TopicStats struct {
 	Topic    string
 	Messages int
 	Clients  int
 }
 
-// MessageData represents a message for display
+// MessageData represents a message for display in the admin interface.
 type MessageData struct {
 	Topic     string
 	ClientID  string
@@ -164,7 +193,8 @@ type MessageData struct {
 	Size      int
 }
 
-// handleDashboard handles the dashboard page
+// handleDashboard returns an HTTP handler function for the dashboard page.
+// The dashboard shows an overview of broker statistics.
 func (s *Server) handleDashboard() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// TODO: Get actual data from storage
@@ -181,7 +211,8 @@ func (s *Server) handleDashboard() http.HandlerFunc {
 	}
 }
 
-// handleClients handles the clients page
+// handleClients returns an HTTP handler function for the clients page.
+// This page displays information about connected MQTT clients.
 func (s *Server) handleClients() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Implementation will come later
@@ -189,7 +220,8 @@ func (s *Server) handleClients() http.HandlerFunc {
 	}
 }
 
-// handleMessages handles the messages page
+// handleMessages returns an HTTP handler function for the messages page.
+// This page displays information about MQTT messages passing through the broker.
 func (s *Server) handleMessages() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Implementation will come later
@@ -197,7 +229,8 @@ func (s *Server) handleMessages() http.HandlerFunc {
 	}
 }
 
-// handleSettings handles the settings page
+// handleSettings returns an HTTP handler function for the settings page.
+// This page allows configuration of the MQTT broker.
 func (s *Server) handleSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Implementation will come later
@@ -205,7 +238,8 @@ func (s *Server) handleSettings() http.HandlerFunc {
 	}
 }
 
-// handleHealthCheck handles the health check endpoint
+// handleHealthCheck returns an HTTP handler function for the health check endpoint.
+// This endpoint provides status information about the admin server.
 func (s *Server) handleHealthCheck() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Health check response structure
