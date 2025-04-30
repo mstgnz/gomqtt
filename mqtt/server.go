@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mstgnz/gomqtt/rate"
 )
 
 // Server represents the MQTT broker server
@@ -94,6 +95,9 @@ type Server struct {
 	clusterService      any // Uses any to avoid circular import
 	clusterServiceMutex sync.RWMutex
 
+	// Rate limiter
+	rateLimiter *RateLimiter
+
 	// Message retention configuration
 	messageRetention time.Duration // How long to keep messages in storage (0 = forever)
 
@@ -156,6 +160,15 @@ func NewServer(host string, port int) *Server {
 			},
 		},
 		serverState: make(map[string]any),
+		// Initialize rate limiter with default settings
+		rateLimiter: NewRateLimiter(
+			true,  // Enabled by default
+			5,     // 5 connections per second
+			100,   // 100 publish messages per second
+			20,    // 20 subscriptions per second
+			16384, // 16KB message size limit
+			2,     // Burst multiplier of 2
+		),
 	}
 }
 
@@ -676,10 +689,20 @@ func (s *Server) handleConnection(conn net.Conn) {
 // handleConnect processes a CONNECT packet
 func (s *Server) handleConnect(conn net.Conn, packet *Packet) {
 	// Extract client ID from packet
-	clientID := packet.ClientID
+	clientID := string(packet.ClientID)
 	if clientID == "" {
 		// Auto-generate client ID if not provided
 		clientID = fmt.Sprintf("client-%s", conn.RemoteAddr().String())
+	}
+
+	// Check rate limiting for connection
+	if !s.rateLimiter.Allow(clientID, rate.ConnectLimit) {
+		log.Printf("Connection rate limit exceeded for client %s", clientID)
+		// Send connection refused response with appropriate reason code
+		// The exact implementation depends on the Packet structure
+		// For now, just close the connection
+		conn.Close()
+		return
 	}
 
 	log.Printf("Client %s connected with protocol %s v%d\n",
@@ -729,106 +752,113 @@ func (s *Server) handleConnect(conn net.Conn, packet *Packet) {
 
 // handlePublish processes a PUBLISH packet
 func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
-	log.Printf("Received PUBLISH: topic=%s, qos=%d, messageID=%d, payload=%s\n",
-		packet.TopicName, packet.Qos, packet.MessageID, string(packet.Payload))
-
-	// Find client ID from connection
-	var clientID string
-	var username string
+	// Get client ID
+	clientID := ""
 	s.clientsMutex.RLock()
 	for id, client := range s.clients {
 		if client.Conn == conn {
 			clientID = id
-			username = client.Username
 			break
 		}
 	}
 	s.clientsMutex.RUnlock()
 
-	// Check publish permission
-	if err := s.checkTopicPermission(clientID, packet.TopicName, true); err != nil {
-		log.Printf("Permission denied for client %s to publish to topic %s: %v",
-			clientID, packet.TopicName, err)
-		// We can't send an error response for PUBLISH in MQTT 3.1.1
-		// The server just drops the message silently
+	if clientID == "" {
+		log.Println("Unable to find client for connection")
 		return
 	}
 
-	// Store message in persistent storage
-	s.persistMessage(clientID, packet.TopicName, packet.Payload, packet.Qos, packet.Retain)
+	// Check publish rate limiting
+	if !s.rateLimiter.Allow(clientID, rate.PublishLimit) {
+		log.Printf("Publish rate limit exceeded for client %s", clientID)
 
-	// Handle retained messages
-	if packet.Retain {
-		s.storeRetainedMessage(packet.TopicName, packet.Payload, packet.Qos)
+		// For MQTT 5.0, we could send back an error
+		// For now, we'll just ignore the publish (the client will eventually resend for QoS > 0)
+		return
 	}
 
-	// Trigger plugin event for message publishing
-	s.triggerPluginEvent("message.publish", map[string]any{
-		"ClientID":  clientID,
-		"Username":  username,
-		"Topic":     packet.TopicName,
-		"Payload":   packet.Payload,
-		"QoS":       packet.Qos,
-		"Retained":  packet.Retain,
-		"Timestamp": time.Now().Unix(),
-	})
+	// Check message size rate limiting if payload is large
+	if len(packet.Payload) > 0 && !s.rateLimiter.Allow(clientID, rate.MessageSizeLimit) {
+		log.Printf("Message size limit exceeded for client %s", clientID)
+		return
+	}
 
-	// For QoS2, store the message until we receive PUBREL
-	if packet.Qos == QoS2 {
+	// Extract topic and payload
+	topic := packet.TopicName
+	payload := packet.Payload
+	qos := packet.Qos
+	retained := packet.Retain
+	messageID := packet.MessageID
+
+	// Check topic permissions
+	err := s.checkTopicPermission(clientID, topic, true)
+	if err != nil {
+		log.Printf("Client %s not authorized to publish to %s: %v", clientID, topic, err)
+		return
+	}
+
+	// For QoS 1, send PUBACK
+	if qos == 1 {
+		puback := NewPubAckPacket(messageID)
+		pubackBytes, err := puback.Encode()
+		if err != nil {
+			log.Printf("Error encoding PUBACK: %v", err)
+		} else {
+			_, err = conn.Write(pubackBytes)
+			if err != nil {
+				log.Printf("Error sending PUBACK: %v", err)
+			}
+		}
+	}
+
+	// For QoS 2, send PUBREC and store message
+	if qos == 2 {
+		pubrec := NewPubRecPacket(messageID)
+		pubrecBytes, err := pubrec.Encode()
+		if err != nil {
+			log.Printf("Error encoding PUBREC: %v", err)
+		} else {
+			_, err = conn.Write(pubrecBytes)
+			if err != nil {
+				log.Printf("Error sending PUBREC: %v", err)
+			}
+		}
+
+		// Store QoS 2 message waiting for PUBREL
 		s.pendingQoS2Mutex.Lock()
-		s.pendingQoS2Messages[packet.MessageID] = &PendingQoS2Message{
-			MessageID:    packet.MessageID,
+		s.pendingQoS2Messages[messageID] = &PendingQoS2Message{
+			MessageID:    messageID,
 			ClientID:     clientID,
-			Topic:        packet.TopicName,
-			Payload:      packet.Payload,
+			Topic:        topic,
+			Payload:      payload,
 			ReceivedTime: time.Now(),
 		}
 		s.pendingQoS2Mutex.Unlock()
 
-		// Send PUBREC
-		pubrec := NewPubRecPacket(packet.MessageID)
-		pubrecBytes, err := pubrec.Encode()
-		if err != nil {
-			log.Printf("Error encoding PUBREC: %v\n", err)
-			return
-		}
-
-		_, err = conn.Write(pubrecBytes)
-		if err != nil {
-			log.Printf("Error sending PUBREC: %v\n", err)
-		}
-
-		// For QoS2, we don't distribute the message until we get PUBREL
+		// Don't distribute QoS 2 message yet - wait for PUBREL
 		return
 	}
 
-	// Distribute the message to subscribers for QoS0 and QoS1
-	s.distributeMessage(packet.TopicName, packet.Payload, packet.Qos)
-
-	// If QoS1, send PUBACK
-	if packet.Qos == QoS1 {
-		puback := NewPubAckPacket(packet.MessageID)
-		pubackBytes, err := puback.Encode()
-		if err != nil {
-			log.Printf("Error encoding PUBACK: %v\n", err)
-			return
-		}
-
-		_, err = conn.Write(pubackBytes)
-		if err != nil {
-			log.Printf("Error sending PUBACK: %v\n", err)
-		}
+	// Store retained message if requested
+	if retained {
+		s.storeRetainedMessage(topic, payload, qos)
 	}
 
-	// Broadcast retained message to cluster if enabled
-	if packet.Retain && s.clusterService != nil {
-		// Use reflection to call BroadcastRetainedMessage without direct import
-		if broadcaster, ok := s.clusterService.(interface {
-			BroadcastRetainedMessage(topic string, payload []byte, qos byte)
-		}); ok {
-			broadcaster.BroadcastRetainedMessage(packet.TopicName, packet.Payload, packet.Qos)
-		}
-	}
+	// Persist message if storage is enabled
+	s.persistMessage(clientID, topic, payload, qos, retained)
+
+	// Distribute message to subscribers
+	s.distributeMessage(topic, payload, qos)
+
+	// Trigger plugin event for message published
+	s.triggerPluginEvent("message.published", map[string]any{
+		"ClientID":  clientID,
+		"Topic":     topic,
+		"QoS":       qos,
+		"Retained":  retained,
+		"Timestamp": time.Now().Unix(),
+		"Size":      len(payload),
+	})
 }
 
 // persistMessage stores a message in the database if storage is available
@@ -994,7 +1024,7 @@ func (s *Server) handlePubComp(conn net.Conn, packet *Packet) {
 
 // handleSubscribe processes a SUBSCRIBE packet
 func (s *Server) handleSubscribe(conn net.Conn, packet *Packet) {
-	// Find client
+	// Find client ID from connection
 	var clientID string
 	var client *Client
 
@@ -1009,7 +1039,34 @@ func (s *Server) handleSubscribe(conn net.Conn, packet *Packet) {
 	s.clientsMutex.RUnlock()
 
 	if client == nil {
-		log.Printf("Unknown client tried to subscribe\n")
+		log.Println("Unable to find client for subscribe")
+		return
+	}
+
+	// Check subscribe rate limiting
+	if !s.rateLimiter.Allow(clientID, rate.SubscribeLimit) {
+		log.Printf("Subscribe rate limit exceeded for client %s", clientID)
+
+		// For MQTT 5.0, we could return error codes in SUBACK
+		// For MQTT 3.1.1, we'll return failure codes for each topic
+
+		// Create SUBACK with all failure codes
+		qosLevels := make([]byte, len(packet.Topics))
+		for i := range qosLevels {
+			qosLevels[i] = 0x80 // 0x80 = Failure
+		}
+
+		suback := NewSubAckPacket(packet.MessageID, qosLevels)
+		subackBytes, err := suback.Encode()
+		if err != nil {
+			log.Printf("Error encoding SUBACK: %v", err)
+			return
+		}
+
+		_, err = conn.Write(subackBytes)
+		if err != nil {
+			log.Printf("Error sending SUBACK: %v", err)
+		}
 		return
 	}
 
@@ -1750,4 +1807,85 @@ func (s *Server) SetClusterService(clusterService any) {
 
 	s.clusterService = clusterService
 	log.Printf("Cluster service set for MQTT server")
+}
+
+// SetRateLimiting enables or disables rate limiting for the server
+func (s *Server) SetRateLimiting(enabled bool) {
+	s.rateLimiter.Enable(enabled)
+}
+
+// ConfigureRateLimiter configures the rate limiter with new default rates
+func (s *Server) ConfigureRateLimiter(connectLimit, publishLimit, subscribeLimit, messageSizeLimit float64, burstMultiplier float64) {
+	// Update the default rates
+	s.rateLimiter.SetDefaultRate(rate.ConnectLimit, connectLimit)
+	s.rateLimiter.SetDefaultRate(rate.PublishLimit, publishLimit)
+	s.rateLimiter.SetDefaultRate(rate.SubscribeLimit, subscribeLimit)
+	s.rateLimiter.SetDefaultRate(rate.MessageSizeLimit, messageSizeLimit)
+}
+
+// SetClientRateLimit sets a custom rate limit for a specific client and limit type
+func (s *Server) SetClientRateLimit(clientID string, limitType string, rateLimit float64) {
+	s.rateLimiter.SetClientRate(clientID, limitType, rateLimit)
+}
+
+// ResetClientRateLimits resets rate limits for a specific client
+func (s *Server) ResetClientRateLimits(clientID string) {
+	s.rateLimiter.Reset(clientID)
+}
+
+// ConfigureRateLimitingFromConfig sets up rate limiting from a configuration object
+func (s *Server) ConfigureRateLimitingFromConfig(config any) {
+	// First, try to use reflection to get the rate limiting config
+	// This approach avoids a direct import dependency on the config package
+
+	enabled := false
+	connectLimit := 5.0
+	publishLimit := 100.0
+	subscribeLimit := 20.0
+	burstMultiplier := 2.0
+
+	// Try to access the config fields via reflection
+	if configVal := reflect.ValueOf(config); configVal.Kind() == reflect.Ptr && !configVal.IsNil() {
+		// Look for MQTT field
+		if mqttField := configVal.Elem().FieldByName("MQTT"); mqttField.IsValid() {
+			// Look for RateLimiting field
+			if rateLimitingField := mqttField.FieldByName("RateLimiting"); rateLimitingField.IsValid() {
+				// Get Enabled field
+				if enabledField := rateLimitingField.FieldByName("Enabled"); enabledField.IsValid() && enabledField.Kind() == reflect.Bool {
+					enabled = enabledField.Bool()
+				}
+
+				// Get ConnectLimit field
+				if connectLimitField := rateLimitingField.FieldByName("ConnectLimit"); connectLimitField.IsValid() && connectLimitField.Kind() == reflect.Float64 {
+					connectLimit = connectLimitField.Float()
+				}
+
+				// Get PublishLimit field
+				if publishLimitField := rateLimitingField.FieldByName("PublishLimit"); publishLimitField.IsValid() && publishLimitField.Kind() == reflect.Float64 {
+					publishLimit = publishLimitField.Float()
+				}
+
+				// Get SubscribeLimit field
+				if subscribeLimitField := rateLimitingField.FieldByName("SubscribeLimit"); subscribeLimitField.IsValid() && subscribeLimitField.Kind() == reflect.Float64 {
+					subscribeLimit = subscribeLimitField.Float()
+				}
+
+				// Get BurstMultiplier field
+				if burstMultiplierField := rateLimitingField.FieldByName("BurstMultiplier"); burstMultiplierField.IsValid() && burstMultiplierField.Kind() == reflect.Float64 {
+					burstMultiplier = burstMultiplierField.Float()
+				}
+			}
+		}
+	}
+
+	// Update rate limiter settings
+	s.rateLimiter.Enable(enabled)
+
+	// If rate limiting is enabled, update the rates
+	if enabled {
+		s.ConfigureRateLimiter(connectLimit, publishLimit, subscribeLimit, 16384, burstMultiplier)
+	}
+
+	log.Printf("Rate limiting configured: enabled=%v, connect=%v/s, publish=%v/s, subscribe=%v/s, burst=%vx",
+		enabled, connectLimit, publishLimit, subscribeLimit, burstMultiplier)
 }

@@ -87,7 +87,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - [x] Redis integration
 - [ ] Bridge mode
 - [ ] Packet filtering
-- [ ] Rate limiting
+- [x] Rate limiting
 - [ ] More database options (SQLite, MySQL)
 - [ ] Prometheus metrics
 - [ ] Multi-node deployment with Docker Compose

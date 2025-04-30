@@ -6,7 +6,14 @@
     "max_message_size": 16384,
     "allow_anonymous": false,
     "max_queue_size": 100,
-    "retain_available": true
+    "retain_available": true,
+    "rate_limiting": {
+      "enabled": true,
+      "connect_limit": 5,
+      "publish_limit": 100,
+      "subscribe_limit": 20,
+      "burst_multiplier": 2
+    }
   },
   "api": {
     "enabled": true,

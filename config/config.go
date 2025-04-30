@@ -18,6 +18,15 @@ type Config struct {
 		MaxQueueSize    int    `json:"max_queue_size"`
 		RetainAvailable bool   `json:"retain_available"`
 
+		// Rate limiting configuration
+		RateLimiting struct {
+			Enabled         bool    `json:"enabled"`
+			ConnectLimit    float64 `json:"connect_limit"`    // Connections per second
+			PublishLimit    float64 `json:"publish_limit"`    // Messages per second
+			SubscribeLimit  float64 `json:"subscribe_limit"`  // Subscriptions per second
+			BurstMultiplier float64 `json:"burst_multiplier"` // Multiplier for burst capacity
+		} `json:"rate_limiting"`
+
 		// TLS/MQTTS configuration
 		TLS struct {
 			Enabled           bool   `json:"enabled"`
@@ -118,6 +127,13 @@ func DefaultConfig() *Config {
 	cfg.MQTT.AllowAnonymous = false
 	cfg.MQTT.MaxQueueSize = 100
 	cfg.MQTT.RetainAvailable = true
+
+	// Rate limiting defaults
+	cfg.MQTT.RateLimiting.Enabled = true
+	cfg.MQTT.RateLimiting.ConnectLimit = 5    // 5 connections per second
+	cfg.MQTT.RateLimiting.PublishLimit = 100  // 100 messages per second
+	cfg.MQTT.RateLimiting.SubscribeLimit = 20 // 20 subscriptions per second
+	cfg.MQTT.RateLimiting.BurstMultiplier = 2 // Allow bursts of 2x the normal rate
 
 	// TLS/MQTTS defaults
 	cfg.MQTT.TLS.Enabled = false
