@@ -99,6 +99,19 @@ For installation and configuration instructions, see [installation.md](installat
 
 For client examples and code samples in various programming languages, see [examples.md](examples.md).
 
+## 🔌 REST API Documentation
+
+GoMQTT includes a comprehensive REST API for monitoring and management. The API allows you to:
+
+- Monitor connected clients and their subscriptions
+- Publish messages and access message history
+- View topic information and statistics
+- Manage broker settings
+
+We use [Scalar](https://scalar.com/) for our API documentation, providing an interactive experience based on OpenAPI specifications.
+
+For more information, see [api-docs.md](api-docs.md).
+
 ## 💡 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

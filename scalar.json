@@ -1,0 +1,52 @@
+{
+  "title": "GoMQTT REST API",
+  "description": "API documentation for GoMQTT, a modern MQTT broker",
+  "primaryColor": "#0096FF",
+  "logo": "https://via.placeholder.com/150x150/0096FF/FFFFFF?text=GoMQTT",
+  "specFiles": [
+    {
+      "id": "main",
+      "name": "GoMQTT REST API",
+      "path": "api-docs.yaml"
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "author": "GoMQTT Team",
+    "website": "https://github.com/mstgnz/gomqtt"
+  },
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "items": [
+        {
+          "title": "Introduction",
+          "content": "api-docs.md"
+        }
+      ]
+    },
+    {
+      "group": "API Reference",
+      "items": [
+        {
+          "title": "API Endpoints",
+          "spec": "main"
+        }
+      ]
+    }
+  ],
+  "customization": {
+    "theme": {
+      "codeBlock": {
+        "defaultLanguage": "json"
+      },
+      "typography": {
+        "fontFamily": "Inter, system-ui, sans-serif"
+      }
+    },
+    "favicon": "https://via.placeholder.com/32x32/0096FF/FFFFFF?text=G"
+  },
+  "development": {
+    "port": 8080
+  }
+} 
