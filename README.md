@@ -52,6 +52,10 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - Client certificate verification (mTLS)
 - Topic-based permission control
 - RBAC (Role-Based Access Control)
+- Advanced DoS protection system
+- Temporary IP/client banning
+- Connection flood detection
+- Progressive penalties for repeat offenders
 
 ### Transport
 

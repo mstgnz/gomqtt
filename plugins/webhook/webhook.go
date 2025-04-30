@@ -78,7 +78,7 @@ func NewWebhookPlugin() *WebhookPlugin {
 }
 
 // Initialize initializes the webhook plugin
-func (p *WebhookPlugin) Initialize(rawConfig interface{}) error {
+func (p *WebhookPlugin) Initialize(rawConfig any) error {
 	// Parse configuration
 	config, ok := rawConfig.(*WebhookConfig)
 	if !ok {
@@ -252,6 +252,6 @@ func (p *WebhookPlugin) Shutdown() error {
 }
 
 // New creates a new webhook plugin instance - this function is used when loading the plugin externally
-func New() interface{} {
+func New() any {
 	return NewWebhookPlugin()
 }

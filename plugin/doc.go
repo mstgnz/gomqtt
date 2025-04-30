@@ -74,15 +74,15 @@ The Context struct provides event data and utility methods:
 
 	type Context struct {
 	    // Event data
-	    data map[string]interface{}
+	    data map[string]any
 
 	    // Methods to access data
 	    GetString(key string) string
 	    GetInt(key string) int
 	    GetBool(key string) bool
 	    GetBytes(key string) []byte
-	    Get(key string) interface{}
-	    Set(key string, value interface{})
+	    Get(key string) any
+	    Set(key string, value any)
 	}
 
 # Built-in Plugins
@@ -119,7 +119,7 @@ Creating a webhook plugin that sends messages to an HTTP endpoint:
 	    clientID := ctx.GetString("clientID")
 
 	    // Create webhook payload
-	    webhookData := map[string]interface{}{
+	    webhookData := map[string]any{
 	        "event":    "message_publish",
 	        "topic":    topic,
 	        "payload":  string(payload),

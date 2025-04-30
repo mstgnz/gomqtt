@@ -21,8 +21,8 @@ type PluginConfig struct {
 type PluginManager struct {
 	registry   *PluginRegistry
 	config     PluginConfig
-	plugins    map[string]interface{}
-	configData map[string]interface{}
+	plugins    map[string]any
+	configData map[string]any
 }
 
 // NewPluginManager creates a new plugin manager
@@ -30,8 +30,8 @@ func NewPluginManager(registry *PluginRegistry, config PluginConfig) *PluginMana
 	return &PluginManager{
 		registry:   registry,
 		config:     config,
-		plugins:    make(map[string]interface{}),
-		configData: make(map[string]interface{}),
+		plugins:    make(map[string]any),
+		configData: make(map[string]any),
 	}
 }
 
@@ -43,7 +43,7 @@ func (m *PluginManager) LoadPluginConfig(configFile string) error {
 	}
 
 	// Parse the main config to get plugin specific sections
-	var config map[string]interface{}
+	var config map[string]any
 	if err := json.Unmarshal(data, &config); err != nil {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
@@ -60,7 +60,7 @@ func (m *PluginManager) LoadPluginConfig(configFile string) error {
 }
 
 // GetPluginConfig retrieves configuration for a specific plugin
-func (m *PluginManager) GetPluginConfig(pluginName string) interface{} {
+func (m *PluginManager) GetPluginConfig(pluginName string) any {
 	return m.configData[pluginName]
 }
 
@@ -145,7 +145,7 @@ func (m *PluginManager) LoadExternalPlugins() error {
 		}
 
 		// Convert to the expected constructor function type
-		constructor, ok := sym.(func() interface{})
+		constructor, ok := sym.(func() any)
 		if !ok {
 			log.Printf("Plugin %s 'New' symbol is not a constructor function", file)
 			continue

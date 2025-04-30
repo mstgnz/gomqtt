@@ -95,7 +95,7 @@ func NewHTTPAuthPlugin() *HTTPAuthPlugin {
 }
 
 // Initialize initializes the plugin with configuration
-func (p *HTTPAuthPlugin) Initialize(rawConfig interface{}) error {
+func (p *HTTPAuthPlugin) Initialize(rawConfig any) error {
 	// Parse configuration
 	config, ok := rawConfig.(*AuthConfig)
 	if !ok {
@@ -334,6 +334,6 @@ func (p *HTTPAuthPlugin) Shutdown() error {
 }
 
 // New creates a new HTTP auth plugin instance
-func New() interface{} {
+func New() any {
 	return NewHTTPAuthPlugin()
 }

@@ -41,7 +41,7 @@ type PluginInterface interface {
     Plugin() *Plugin
 
     // Initialize initializes the plugin with configuration
-    Initialize(config interface{}) error
+    Initialize(config any) error
 
     // Name returns the plugin name
     Name() string
@@ -67,7 +67,7 @@ The `BasePlugin` provides a common implementation that simplifies creating plugi
 ```go
 type BasePlugin struct {
     plugin *Plugin
-    config interface{}
+    config any
 }
 ```
 
@@ -90,8 +90,8 @@ The `PluginManager` handles plugin loading and configuration:
 type PluginManager struct {
     registry   *PluginRegistry
     config     PluginConfig
-    plugins    map[string]interface{}
-    configData map[string]interface{}
+    plugins    map[string]any
+    configData map[string]any
 }
 ```
 
@@ -150,7 +150,7 @@ func NewMyPlugin() *MyPlugin {
 }
 
 // Initialize initializes the plugin with configuration
-func (p *MyPlugin) Initialize(rawConfig interface{}) error {
+func (p *MyPlugin) Initialize(rawConfig any) error {
     // Parse configuration
     config, ok := rawConfig.(*MyConfig)
     if !ok {
@@ -172,7 +172,7 @@ func (p *MyPlugin) Shutdown() error {
 }
 
 // New creates a new plugin instance (for external loading)
-func New() interface{} {
+func New() any {
     return NewMyPlugin()
 }
 ```
@@ -279,7 +279,7 @@ Plugins can be configured via the broker's configuration file:
 Your plugin should parse this configuration in its `Initialize` method:
 
 ```go
-func (p *MyPlugin) Initialize(rawConfig interface{}) error {
+func (p *MyPlugin) Initialize(rawConfig any) error {
     config, ok := rawConfig.(*MyConfig)
     if !ok {
         return fmt.Errorf("invalid configuration type")
@@ -479,7 +479,7 @@ func (p *MyPlugin) handleSomeEvent(ctx *plugin.Context) error {
 Ensure thread safety when accessing shared resources:
 
 ```go
-func (p *MyPlugin) updateSomething(key string, value interface{}) {
+func (p *MyPlugin) updateSomething(key string, value any) {
     p.mutex.Lock()
     defer p.mutex.Unlock()
 

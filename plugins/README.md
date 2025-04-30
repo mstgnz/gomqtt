@@ -145,7 +145,7 @@ func (p *MyPlugin) handleClientConnect(ctx *plugin.Context) error {
 }
 
 // This function is called when loading as an external plugin
-func New() interface{} {
+func New() any {
 	return NewMyPlugin()
 }
 ```

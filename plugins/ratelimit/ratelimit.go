@@ -61,7 +61,7 @@ func NewRateLimitPlugin() *RateLimitPlugin {
 }
 
 // Initialize initializes the rate limit plugin
-func (p *RateLimitPlugin) Initialize(rawConfig interface{}) error {
+func (p *RateLimitPlugin) Initialize(rawConfig any) error {
 	// Parse configuration
 	config, ok := rawConfig.(*RateLimitConfig)
 	if !ok {
@@ -335,6 +335,6 @@ func (p *RateLimitPlugin) Shutdown() error {
 }
 
 // New creates a new rate limit plugin instance
-func New() interface{} {
+func New() any {
 	return NewRateLimitPlugin()
 }

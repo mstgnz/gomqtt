@@ -33,7 +33,7 @@ type Server struct {
 	Router     chi.Router
 	Auth       *auth.Auth
 	Storage    storage.Storage
-	MQTTServer interface{} // Reference to MQTT server for health checks
+	MQTTServer any // Reference to MQTT server for health checks
 	ListenAddr string
 	httpServer *http.Server
 }
@@ -1394,7 +1394,7 @@ func (s *Server) handleGetUserRoles() http.HandlerFunc {
 //
 // Parameters:
 //   - mqttServer: Reference to the MQTT server instance
-func (s *Server) SetMQTTServer(mqttServer interface{}) {
+func (s *Server) SetMQTTServer(mqttServer any) {
 	s.MQTTServer = mqttServer
 }
 
@@ -1403,10 +1403,10 @@ func (s *Server) SetMQTTServer(mqttServer interface{}) {
 func (s *Server) handleHealthCheck() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Health check response structure
-		healthStatus := map[string]interface{}{
+		healthStatus := map[string]any{
 			"status":    "ok",
 			"timestamp": time.Now().Format(time.RFC3339),
-			"services": map[string]interface{}{
+			"services": map[string]any{
 				"api": map[string]string{
 					"status": "ok",
 				},
@@ -1414,9 +1414,9 @@ func (s *Server) handleHealthCheck() http.HandlerFunc {
 		}
 
 		// Add services status map if not exists
-		services, ok := healthStatus["services"].(map[string]interface{})
+		services, ok := healthStatus["services"].(map[string]any)
 		if !ok {
-			services = make(map[string]interface{})
+			services = make(map[string]any)
 			healthStatus["services"] = services
 		}
 

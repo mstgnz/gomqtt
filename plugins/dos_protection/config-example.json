@@ -1,0 +1,31 @@
+{
+  "mqtt": {
+    "host": "0.0.0.0",
+    "port": 1883,
+    "ws_port": 9001
+  },
+  "plugins": {
+    "enabled": true,
+    "directory": "./plugins",
+    "autoload": ["dos_protection"]
+  },
+  "dos_protection": {
+    "enabled": true,
+    "connection_rate": 20,
+    "connection_burst": 30,
+    "publish_rate": 100,
+    "subscribe_rate": 30,
+    "byte_rate": 1048576,
+    "window_size": 60,
+    "ip_whitelist": ["127.0.0.1", "192.168.0.0/24"],
+    "max_connections_per_ip": 10,
+    "temporary_ban_duration": "5m",
+    "failed_auth_threshold": 3,
+    "connection_flood_interval": "10s",
+    "connection_flood_count": 30,
+    "global_connection_rate": 200,
+    "progressive_ban_enabled": true,
+    "max_ban_duration": "24h",
+    "enable_logging": true
+  }
+} 

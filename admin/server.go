@@ -328,7 +328,7 @@ func (s *Server) handleSettings() http.HandlerFunc {
 func (s *Server) handleHealthCheck() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Health check response structure
-		healthStatus := map[string]interface{}{
+		healthStatus := map[string]any{
 			"status":    "ok",
 			"timestamp": time.Now().Format(time.RFC3339),
 		}

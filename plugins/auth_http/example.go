@@ -122,7 +122,7 @@ func ExampleAuthServer() {
 				err := json.NewDecoder(r.Body).Decode(&authReq)
 				if err != nil {
 					w.WriteHeader(http.StatusBadRequest)
-					json.NewEncoder(w).Encode(map[string]interface{}{
+					json.NewEncoder(w).Encode(map[string]any{
 						"authenticated": false,
 						"error":         "invalid request format",
 					})
@@ -137,7 +137,7 @@ func ExampleAuthServer() {
 				authenticated := (authReq.Username == "test_user" && authReq.Password == "test_password")
 
 				// Respond
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				json.NewEncoder(w).Encode(map[string]any{
 					"authenticated": authenticated,
 					"error":         authenticated ? "" : "invalid credentials",
 				})
@@ -156,7 +156,7 @@ func ExampleAuthServer() {
 				err := json.NewDecoder(r.Body).Decode(&aclReq)
 				if err != nil {
 					w.WriteHeader(http.StatusBadRequest)
-					json.NewEncoder(w).Encode(map[string]interface{}{
+					json.NewEncoder(w).Encode(map[string]any{
 						"allowed": false,
 						"error":   "invalid request format",
 					})
@@ -182,7 +182,7 @@ func ExampleAuthServer() {
 				}
 
 				// Respond
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				json.NewEncoder(w).Encode(map[string]any{
 					"allowed": allowed,
 					"error":   allowed ? "" : "access denied to this topic",
 				})

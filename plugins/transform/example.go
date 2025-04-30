@@ -30,10 +30,10 @@ func ExampleConfig() string {
 				Name:        "Message Enricher",
 				TopicFilter: "events/#",
 				Type:        "enrich",
-				EnrichmentData: map[string]interface{}{
+				EnrichmentData: map[string]any{
 					"processedBy": "GoMQTT Transform Plugin",
 					"timestamp":   "{{timestamp}}",
-					"metadata": map[string]interface{}{
+					"metadata": map[string]any{
 						"version": "1.0",
 						"source":  "transform-plugin",
 					},
