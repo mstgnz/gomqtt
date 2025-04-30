@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'gomqtt'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: /metrics
+    
+  # You can add more scrape targets for clustered deployments
+  # - job_name: 'gomqtt-cluster'
+  #   static_configs:
+  #     - targets:
+  #       - 'node1:9090'
+  #       - 'node2:9090'
+  #       - 'node3:9090'
+  #   metrics_path: /metrics
+  
+  # Example for Docker Compose deployment
+  # - job_name: 'gomqtt-docker'
+  #   static_configs:
+  #     - targets:
+  #       - 'gomqtt:9090'
+  #   metrics_path: /metrics 

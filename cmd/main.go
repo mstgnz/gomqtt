@@ -15,6 +15,7 @@ import (
 	"github.com/mstgnz/gomqtt/cmd/admin"
 	"github.com/mstgnz/gomqtt/cmd/api"
 	"github.com/mstgnz/gomqtt/config"
+	"github.com/mstgnz/gomqtt/metrics"
 	"github.com/mstgnz/gomqtt/mqtt"
 	"github.com/mstgnz/gomqtt/plugin"
 	"github.com/mstgnz/gomqtt/plugins/webhook"
@@ -278,6 +279,21 @@ func main() {
 	adminAddr := fmt.Sprintf("%s:%d", cfg.API.Host, 8081) // Admin panel on port 8081
 	adminServer := admin.NewServer(adminAddr, "web/templates", store)
 
+	// Initialize metrics server if enabled
+	var metricsServer *metrics.Server
+	if cfg.Metrics.Enabled {
+		log.Printf("Setting up Prometheus metrics...")
+
+		// Start system metrics collector
+		metrics.StartSystemMetricsCollector(time.Duration(cfg.Metrics.SystemMetricsInterval) * time.Second)
+
+		// Create metrics server
+		metricsServer = metrics.NewServer(cfg.Metrics.Host, cfg.Metrics.Port, cfg.Metrics.Path)
+
+		log.Printf("Prometheus metrics initialized on %s:%d%s",
+			cfg.Metrics.Host, cfg.Metrics.Port, cfg.Metrics.Path)
+	}
+
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -306,6 +322,17 @@ func main() {
 		}
 	}()
 
+	// Start metrics server if enabled
+	if cfg.Metrics.Enabled && metricsServer != nil {
+		go func() {
+			log.Printf("Starting Prometheus metrics server on %s:%d%s",
+				cfg.Metrics.Host, cfg.Metrics.Port, cfg.Metrics.Path)
+			if err := metricsServer.Start(); err != nil {
+				log.Fatalf("Failed to start metrics server: %v", err)
+			}
+		}()
+	}
+
 	log.Printf("GoMQTT broker started. Press Ctrl+C to shutdown")
 
 	// Wait for shutdown signal
@@ -332,6 +359,14 @@ func main() {
 	log.Println("Stopping Admin Panel...")
 	if err := adminServer.Stop(); err != nil {
 		log.Printf("Error shutting down Admin Panel: %v", err)
+	}
+
+	// Gracefully shutdown metrics server if running
+	if cfg.Metrics.Enabled && metricsServer != nil {
+		log.Println("Stopping metrics server...")
+		if err := metricsServer.Stop(); err != nil {
+			log.Printf("Error shutting down metrics server: %v", err)
+		}
 	}
 
 	// Wait for context to complete or timeout

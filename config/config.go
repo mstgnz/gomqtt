@@ -60,6 +60,15 @@ type Config struct {
 		Port    int    `json:"port"`
 	} `json:"api"`
 
+	// Prometheus metrics configuration
+	Metrics struct {
+		Enabled               bool   `json:"enabled"`
+		Host                  string `json:"host"`
+		Port                  int    `json:"port"`
+		Path                  string `json:"path"`
+		SystemMetricsInterval int    `json:"system_metrics_interval"`
+	} `json:"metrics"`
+
 	Auth struct {
 		JWTSecret  string `json:"jwt_secret"`
 		JWTExpires int    `json:"jwt_expires"` // in hours
@@ -180,6 +189,13 @@ func DefaultConfig() *Config {
 	cfg.API.Enabled = true
 	cfg.API.Host = "0.0.0.0"
 	cfg.API.Port = 8080
+
+	// Metrics defaults
+	cfg.Metrics.Enabled = false
+	cfg.Metrics.Host = "0.0.0.0"
+	cfg.Metrics.Port = 9090
+	cfg.Metrics.Path = "/metrics"
+	cfg.Metrics.SystemMetricsInterval = 15
 
 	// Auth defaults
 	cfg.Auth.JWTSecret = "change-me-in-production"
