@@ -20,6 +20,7 @@ type Server struct {
 	Auth       *auth.Auth
 	Storage    *storage.PostgresStorage
 	ListenAddr string
+	httpServer *http.Server
 }
 
 // NewServer creates a new REST API server
@@ -45,7 +46,23 @@ func NewServer(listenAddr string, authService *auth.Auth, storage *storage.Postg
 // Start starts the REST API server
 func (s *Server) Start() error {
 	fmt.Printf("REST API started on %s\n", s.ListenAddr)
-	return http.ListenAndServe(s.ListenAddr, s.Router)
+	s.httpServer = &http.Server{
+		Addr:    s.ListenAddr,
+		Handler: s.Router,
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+// Stop gracefully shuts down the server with a timeout
+func (s *Server) Stop() error {
+	if s.httpServer == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return s.httpServer.Shutdown(ctx)
 }
 
 // setupRoutes configures the API routes

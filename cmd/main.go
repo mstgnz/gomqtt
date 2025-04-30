@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -185,10 +186,30 @@ func main() {
 	<-sigChan
 	log.Println("Shutting down...")
 
+	// Create a context with timeout for shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// Cleanup and close connections
+	log.Println("Stopping MQTT server...")
 	if err := mqttServer.Stop(); err != nil {
 		log.Printf("Error shutting down MQTT server: %v", err)
 	}
 
-	log.Println("Server stopped. Goodbye!")
+	// Gracefully shutdown API server
+	log.Println("Stopping API server...")
+	if err := apiServer.Stop(); err != nil {
+		log.Printf("Error shutting down API server: %v", err)
+	}
+
+	// Gracefully shutdown Admin server
+	log.Println("Stopping Admin Panel...")
+	if err := adminServer.Stop(); err != nil {
+		log.Printf("Error shutting down Admin Panel: %v", err)
+	}
+
+	// Wait for context to complete or timeout
+	<-ctx.Done()
+
+	log.Println("All servers stopped. Goodbye!")
 }

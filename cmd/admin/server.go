@@ -1,11 +1,13 @@
 package admin
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,6 +21,7 @@ type Server struct {
 	ListenAddr  string
 	TemplateDir string
 	templates   map[string]*template.Template
+	httpServer  *http.Server
 }
 
 // NewServer creates a new admin panel server
@@ -47,7 +50,23 @@ func NewServer(listenAddr, templateDir string, storage *storage.PostgresStorage)
 // Start starts the admin panel server
 func (s *Server) Start() error {
 	fmt.Printf("Admin panel started on %s\n", s.ListenAddr)
-	return http.ListenAndServe(s.ListenAddr, s.Router)
+	s.httpServer = &http.Server{
+		Addr:    s.ListenAddr,
+		Handler: s.Router,
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+// Stop gracefully shuts down the server with a timeout
+func (s *Server) Stop() error {
+	if s.httpServer == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return s.httpServer.Shutdown(ctx)
 }
 
 // setupRoutes configures the admin panel routes
