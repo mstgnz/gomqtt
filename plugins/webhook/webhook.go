@@ -3,20 +3,45 @@ package webhook
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"sync"
 	"time"
 
 	"github.com/mstgnz/gomqtt/plugin"
 )
 
+// WebhookConfig represents the webhook plugin configuration
+type WebhookConfig struct {
+	Endpoints     []EndpointConfig `json:"endpoints"`
+	Timeout       int              `json:"timeout"`
+	RetryCount    int              `json:"retry_count"`
+	RetryInterval int              `json:"retry_interval"`
+	MaxConcurrent int              `json:"max_concurrent"`
+}
+
+// EndpointConfig represents a webhook endpoint configuration
+type EndpointConfig struct {
+	URL         string            `json:"url"`
+	TopicFilter string            `json:"topic_filter"`
+	Method      string            `json:"method"`
+	QoS         byte              `json:"qos"`
+	Headers     map[string]string `json:"headers"`
+	Template    string            `json:"template"`
+	Enabled     bool              `json:"enabled"`
+}
+
 // WebhookPlugin is a plugin that sends webhook notifications when messages are published
 type WebhookPlugin struct {
-	plugin     *plugin.Plugin
-	endpoints  map[string]string // topic pattern -> webhook URL
-	httpClient *http.Client
-	mutex      sync.RWMutex
+	*plugin.BasePlugin
+	endpoints     []EndpointConfig
+	httpClient    *http.Client
+	config        *WebhookConfig
+	mutex         sync.RWMutex
+	topicMatchers map[string]*regexp.Regexp
+	active        bool
 }
 
 // WebhookPayload represents the JSON payload sent to webhook endpoints
@@ -33,55 +58,96 @@ type WebhookPayload struct {
 // NewWebhookPlugin creates a new webhook plugin
 func NewWebhookPlugin() *WebhookPlugin {
 	p := &WebhookPlugin{
-		plugin: plugin.NewPlugin(
+		BasePlugin: plugin.NewBasePlugin(
 			"webhook",
 			"Sends HTTP webhooks when messages are published",
 			"1.0.0",
 			"GoMQTT Team",
 		),
-		endpoints: make(map[string]string),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		topicMatchers: make(map[string]*regexp.Regexp),
+		active:        true,
 	}
 
 	// Register handlers
-	p.plugin.OnEvent(plugin.EventMessagePublish, p.handlePublish)
+	p.RegisterEventHandler(plugin.EventMessagePublish, p.handlePublish)
 
 	return p
 }
 
-// Plugin returns the underlying plugin
-func (p *WebhookPlugin) Plugin() *plugin.Plugin {
-	return p.plugin
-}
+// Initialize initializes the webhook plugin
+func (p *WebhookPlugin) Initialize(rawConfig interface{}) error {
+	// Parse configuration
+	config, ok := rawConfig.(*WebhookConfig)
+	if !ok {
+		return fmt.Errorf("invalid configuration type")
+	}
 
-// RegisterEndpoint registers a webhook endpoint for a topic pattern
-func (p *WebhookPlugin) RegisterEndpoint(topicPattern, webhookURL string) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	p.endpoints[topicPattern] = webhookURL
-	log.Printf("Registered webhook for topic '%s' to URL '%s'", topicPattern, webhookURL)
-}
+	p.config = config
 
-// UnregisterEndpoint removes a webhook endpoint for a topic pattern
-func (p *WebhookPlugin) UnregisterEndpoint(topicPattern string) {
+	// Set timeout based on configuration
+	if config.Timeout > 0 {
+		p.httpClient.Timeout = time.Duration(config.Timeout) * time.Second
+	}
+
+	// Configure endpoints
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	delete(p.endpoints, topicPattern)
-	log.Printf("Unregistered webhook for topic '%s'", topicPattern)
+	p.endpoints = config.Endpoints
+	p.mutex.Unlock()
+
+	// Precompile topic matchers
+	for _, endpoint := range config.Endpoints {
+		if endpoint.Enabled {
+			// Convert MQTT wildcards to regex
+			pattern := endpoint.TopicFilter
+			pattern = regexp.QuoteMeta(pattern)
+			pattern = regexp.MustCompile(`\\\+`).ReplaceAllString(pattern, "[^/]+")
+			pattern = regexp.MustCompile(`\\\#`).ReplaceAllString(pattern, ".*")
+			pattern = "^" + pattern + "$"
+
+			// Compile regex
+			regex, err := regexp.Compile(pattern)
+			if err != nil {
+				log.Printf("Invalid topic filter '%s': %v", endpoint.TopicFilter, err)
+				continue
+			}
+
+			p.topicMatchers[endpoint.TopicFilter] = regex
+		}
+	}
+
+	log.Printf("Webhook plugin initialized with %d endpoints", len(config.Endpoints))
+	return nil
 }
 
 // handlePublish handles message publish events
 func (p *WebhookPlugin) handlePublish(ctx *plugin.Context) error {
+	if !p.active {
+		return nil
+	}
+
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
 	// Check for matching endpoints
-	for pattern, url := range p.endpoints {
-		// Simple exact topic match for now, could be enhanced with wildcards
-		if pattern == ctx.Topic || pattern == "#" {
-			go p.sendWebhook(url, ctx)
+	for _, endpoint := range p.endpoints {
+		if !endpoint.Enabled {
+			continue
+		}
+
+		// Check QoS level
+		if ctx.QoS < endpoint.QoS {
+			continue
+		}
+
+		// Check if topic matches the filter
+		if matcher, ok := p.topicMatchers[endpoint.TopicFilter]; ok {
+			if matcher.MatchString(ctx.Topic) {
+				// Don't block on webhook sending
+				go p.sendWebhook(endpoint, ctx)
+			}
 		}
 	}
 
@@ -89,7 +155,7 @@ func (p *WebhookPlugin) handlePublish(ctx *plugin.Context) error {
 }
 
 // sendWebhook sends a webhook notification
-func (p *WebhookPlugin) sendWebhook(url string, ctx *plugin.Context) {
+func (p *WebhookPlugin) sendWebhook(endpoint EndpointConfig, ctx *plugin.Context) {
 	payload := WebhookPayload{
 		ClientID:  ctx.ClientID,
 		Topic:     ctx.Topic,
@@ -97,10 +163,18 @@ func (p *WebhookPlugin) sendWebhook(url string, ctx *plugin.Context) {
 		QoS:       ctx.QoS,
 		Retained:  ctx.Retained,
 		Timestamp: ctx.Timestamp,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-			"User-Agent":   "GoMQTT-Webhook/1.0",
-		},
+		Headers:   make(map[string]string),
+	}
+
+	// Add default headers
+	payload.Headers = map[string]string{
+		"Content-Type": "application/json",
+		"User-Agent":   "GoMQTT-Webhook/1.0",
+	}
+
+	// Add custom headers from configuration
+	for k, v := range endpoint.Headers {
+		payload.Headers[k] = v
 	}
 
 	// Convert to JSON
@@ -110,27 +184,74 @@ func (p *WebhookPlugin) sendWebhook(url string, ctx *plugin.Context) {
 		return
 	}
 
-	// Send HTTP request
-	resp, err := p.httpClient.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
+	// Determine HTTP method
+	method := endpoint.Method
+	if method == "" {
+		method = "POST"
+	}
+
+	// Create the request
+	req, err := http.NewRequest(method, endpoint.URL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		log.Printf("Error sending webhook to %s: %v", url, err)
+		log.Printf("Error creating webhook request: %v", err)
 		return
 	}
-	defer resp.Body.Close()
 
-	log.Printf("Webhook sent to %s with status code %d", url, resp.StatusCode)
-}
-
-// GetEndpoints returns the current webhook endpoints
-func (p *WebhookPlugin) GetEndpoints() map[string]string {
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
-
-	// Create a copy of the endpoints map to avoid race conditions
-	endpointsCopy := make(map[string]string, len(p.endpoints))
-	for k, v := range p.endpoints {
-		endpointsCopy[k] = v
+	// Set headers
+	for k, v := range payload.Headers {
+		req.Header.Set(k, v)
 	}
 
-	return endpointsCopy
+	// Send HTTP request with retries
+	var resp *http.Response
+	retries := 0
+	maxRetries := p.config.RetryCount
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	retryInterval := p.config.RetryInterval
+	if retryInterval <= 0 {
+		retryInterval = 5
+	}
+
+	for retries <= maxRetries {
+		resp, err = p.httpClient.Do(req)
+		if err == nil && resp.StatusCode < 500 {
+			break
+		}
+
+		if err != nil {
+			log.Printf("Webhook request failed (attempt %d/%d): %v",
+				retries+1, maxRetries+1, err)
+		} else {
+			log.Printf("Webhook request returned error status %d (attempt %d/%d)",
+				resp.StatusCode, retries+1, maxRetries+1)
+			resp.Body.Close()
+		}
+
+		retries++
+		if retries <= maxRetries {
+			time.Sleep(time.Duration(retryInterval) * time.Second)
+		}
+	}
+
+	if resp != nil {
+		defer resp.Body.Close()
+		log.Printf("Webhook sent to %s with status code %d", endpoint.URL, resp.StatusCode)
+	}
+}
+
+// Shutdown stops the webhook plugin
+func (p *WebhookPlugin) Shutdown() error {
+	p.mutex.Lock()
+	p.active = false
+	p.mutex.Unlock()
+	log.Printf("Webhook plugin shut down")
+	return nil
+}
+
+// New creates a new webhook plugin instance - this function is used when loading the plugin externally
+func New() interface{} {
+	return NewWebhookPlugin()
 }

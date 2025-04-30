@@ -86,6 +86,14 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - State synchronization
 - Shared subscriptions
 
+### Plugin System
+
+- 🧩 **Flexible Plugin Architecture**: Extend the broker with custom plugins
+- 🔧 **Event-Based System**: Plugins can hook into various broker events
+- 📦 **Built-in Plugins**: Webhook, Rate Limiter, HTTP Authentication
+- 🔌 **External Plugins**: Load Go plugins at runtime
+- 🛠️ **Developer-Friendly API**: Easy to create new plugins
+
 ## 📚 Documentation
 
 For more detailed information, check out the following documentation:
