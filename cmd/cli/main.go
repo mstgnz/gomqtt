@@ -110,8 +110,8 @@ Complete documentation is available at https://github.com/mstgnz/gomqtt`,
 			var storageErr error
 
 			switch cfg.Storage.Type {
-			case "redis":
-				store, storageErr = storage.NewRedisStorage(cfg.GetRedisURL(), cfg.Redis.KeyPrefix)
+			case "mysql":
+				store, storageErr = storage.NewMySQLStorage(cfg.GetMySQLURL())
 			case "postgres", "":
 				store, storageErr = storage.NewPostgresStorage(cfg.GetDatabaseURL())
 			default:
@@ -162,8 +162,8 @@ Complete documentation is available at https://github.com/mstgnz/gomqtt`,
 			var storageErr error
 
 			switch cfg.Storage.Type {
-			case "redis":
-				store, storageErr = storage.NewRedisStorage(cfg.GetRedisURL(), cfg.Redis.KeyPrefix)
+			case "mysql":
+				store, storageErr = storage.NewMySQLStorage(cfg.GetMySQLURL())
 			case "postgres", "":
 				store, storageErr = storage.NewPostgresStorage(cfg.GetDatabaseURL())
 			default:

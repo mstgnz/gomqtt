@@ -115,7 +115,7 @@ type Config struct {
 
 	Storage struct {
 		Enabled          bool   `json:"enabled"`
-		Type             string `json:"type"`              // "postgres" or "redis"
+		Type             string `json:"type"`              // "postgres" or "mysql"
 		MessageRetention int    `json:"message_retention"` // in hours, 0 = forever
 		CleanupInterval  int    `json:"cleanup_interval"`  // in hours
 		BatchSize        int    `json:"batch_size"`        // for batch operations
@@ -307,6 +307,18 @@ func (c *Config) GetDatabaseURL() string {
 		c.Database.Port,
 		c.Database.DBName,
 		c.Database.SSLMode,
+	)
+}
+
+// GetMySQLURL returns the MySQL connection URL
+func (c *Config) GetMySQLURL() string {
+	return fmt.Sprintf(
+		"%s:%s@tcp(%s:%d)/%s?parseTime=true",
+		c.Database.User,
+		c.Database.Password,
+		c.Database.Host,
+		c.Database.Port,
+		c.Database.DBName,
 	)
 }
 

@@ -101,19 +101,6 @@ func main() {
 	var storageErr error
 
 	switch cfg.Storage.Type {
-	case "redis":
-		if cfg.Redis.Enabled {
-			log.Printf("Setting up Redis storage...")
-			store, storageErr = storage.NewRedisStorage(cfg.GetRedisURL(), cfg.Redis.KeyPrefix)
-			if storageErr != nil {
-				log.Printf("Warning: Failed to connect to Redis: %v", storageErr)
-				log.Println("Continuing without Redis support")
-			} else {
-				log.Printf("Redis storage initialized at %s:%d", cfg.Redis.Host, cfg.Redis.Port)
-			}
-		} else {
-			log.Printf("Redis is configured as storage type but not enabled in config")
-		}
 	case "postgres", "": // Default to PostgreSQL if not specified
 		log.Printf("Setting up PostgreSQL storage...")
 		store, storageErr = storage.NewPostgresStorage(cfg.GetDatabaseURL())
@@ -122,6 +109,15 @@ func main() {
 			log.Println("Continuing without database support")
 		} else {
 			log.Printf("PostgreSQL storage initialized at %s:%d", cfg.Database.Host, cfg.Database.Port)
+		}
+	case "mysql":
+		log.Printf("Setting up MySQL storage...")
+		store, storageErr = storage.NewMySQLStorage(cfg.GetMySQLURL())
+		if storageErr != nil {
+			log.Printf("Warning: Failed to connect to MySQL: %v", storageErr)
+			log.Println("Continuing without database support")
+		} else {
+			log.Printf("MySQL storage initialized at %s:%d", cfg.Database.Host, cfg.Database.Port)
 		}
 	default:
 		log.Printf("Unknown storage type: %s, no storage will be used", cfg.Storage.Type)

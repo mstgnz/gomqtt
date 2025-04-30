@@ -1,0 +1,48 @@
+services:
+  gomqtt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "1883:1883" # MQTT
+      - "8080:8080" # REST API
+      - "8081:8081" # Admin Panel
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=gomqtt
+      - DB_PASSWORD=gomqtt
+      - DB_NAME=gomqtt
+      - STORAGE_TYPE=mysql
+      - JWT_SECRET=change-me-in-production
+    volumes:
+      - ./config:/app/config
+      - ./plugins:/app/plugins
+    depends_on:
+      - mysql
+    restart: unless-stopped
+    networks:
+      - gomqtt-network
+
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=gomqtt
+      - MYSQL_USER=gomqtt
+      - MYSQL_PASSWORD=gomqtt
+    volumes:
+      - mysql-data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - gomqtt-network
+    command: --default-authentication-plugin=mysql_native_password
+
+networks:
+  gomqtt-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
