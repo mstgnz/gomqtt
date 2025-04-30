@@ -1,179 +1,108 @@
-# 🛰️ GoMQTT - Modern, Geliştirilebilir, Hafif MQTT Broker
+# 🛰️ GoMQTT - Modern, Scalable, Lightweight MQTT Broker
 
-## 📖 Proje Amacı
+![GoMQTT Logo](https://via.placeholder.com/150x150/0096FF/FFFFFF?text=GoMQTT)
 
-GoMQTT, IoT ve edge cihazlar için tasarlanmış, hafif ve yüksek performanslı bir MQTT broker yazılımıdır.  
-C ile yazılmış mevcut brokerlara alternatif olarak, daha **kolay geliştirilebilir**, **özelleştirilebilir**, **modern** bir altyapı sunar.  
-Go dili kullanılarak yazılacak ve PostgreSQL gibi modern veritabanlarıyla sorunsuz entegre olacaktır.
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Bu proje sayesinde:
+## 📖 Project Overview
 
-- Cihazlar arası iletişim hızlı, hafif ve güvenli şekilde gerçekleşir.
-- Geliştiriciler, kolayca plugin ekleyerek broker'ı genişletebilir.
-- Sistem yönetimi için bir REST API (go-chi) ve entegre bir Admin Panel (Go+HTMX+templ) sunulacaktır.
+GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker designed for IoT and edge devices. Written in Go and seamlessly integrating with modern databases like PostgreSQL.
 
----
+### 🌟 Why GoMQTT?
 
-## 🏗️ Hedef Özellikler
+- 💡 **Lightweight & Fast**: Efficiently manages thousands of concurrent connections with Go's concurrency capabilities
+- 🔌 **Plugin System**: Extendable with an easily integratable plugin system
+- 🔐 **Secure**: Authentication with JWT, API Key, and mTLS support
+- 🔄 **Multi-Transport**: Supports TCP, WebSocket, TLS (MQTTS), and WSS
+- 📊 **Admin Panel**: Fast interface built with Go + HTMX + templ
+- 🛢️ **Database Integration**: Message and session persistence with PostgreSQL
 
-| Özellik                | Açıklama                                                   |
-| :--------------------- | :--------------------------------------------------------- |
-| MQTT Broker            | Temel publish/subscribe mekanizması                        |
-| Plug-in Sistemi        | Kolayca event-based genişletme yapılabilecek yapı          |
-| REST API               | Cihaz yönetimi, mesaj geçmişi, online/offline kontrolü     |
-| Custom Authentication  | API Key - JWT bazlı kimlik doğrulama                       |
-| Access Control         | Cihaz bazlı topic yetkilendirme                            |
-| PostgreSQL Integration | Mesaj geçmişi ve cihaz kayıtları veritabanında saklama     |
-| Monitoring Dashboard   | Go+HTMX+templ ile bağlı client'lar ve sistem durumu izleme |
+## 🚀 Features
 
----
+✅ **MQTT Protocol Support**
 
-## 📋 Yapılacaklar Listesi (Roadmap)
+- MQTT v3.1.1 compatible
+- QoS 0, 1, and 2 support
+- Persistent sessions
+- Retained messages
+- Clean/Dirty session control
+- Will messages
 
-### 1. Temel Broker Altyapısı
+✅ **Security**
 
-- [x] TCP Server kur (port: 1883 default)
-- [x] MQTT v3.1.1 / v5 protokol parser yaz
-- [x] Connect, Subscribe, Publish, Ping, Disconnect paketleri işle
+- TLS/SSL support (MQTTS)
+- Secure WebSocket (WSS)
+- JWT-based authentication
+- Client certificate verification (mTLS)
+- Topic-based permission control
 
-### 2. Kimlik Doğrulama Sistemi
+✅ **Transport**
 
-- [x] JWT destekli auth
+- TCP Server (1883)
+- TLS Server (8883)
+- WebSocket (9001)
+- Secure WebSocket (9443)
 
-### 3. Mesaj Routing Sistemi
+✅ **Database & Storage**
 
-- [x] Topic bazlı mesaj yönlendirme
-- [x] QoS 0 ve QoS 1 desteği
+- PostgreSQL message persistence
+- Scalable batch operations
+- Message history API
+- Automatic message cleanup
+- Message expiration feature
 
-### 4. REST API Sunucusu
+✅ **Admin & Monitoring**
 
-- [x] Client listesi (bağlı cihazlar)
-- [x] Publish geçmişi listeleme
-- [x] Online / Offline cihaz sorgulama
+- View connected devices
+- Monitor live message flow
+- System resource usage
+- Message statistics
 
-### 5. Veritabanı Bağlantısı
+✅ **Plugin System**
 
-- [x] PostgreSQL bağlantısı kur
-- [x] Publish edilen mesajları kaydet
-- [x] Client bilgilerini sakla
+- Event-based plugin architecture
+- Webhook integration
+- Custom authentication
 
-### 6. Plugin Sistemi
+## 📋 Planned Features
 
-- [x] Publish/Subscribe olaylarına hook yazabilme altyapısı
-- [x] Basit örnek plugin (Webhook tetikleme)
+- [ ] Full MQTT v5.0 support
+- [ ] Clustering support
+- [ ] Shared subscriptions
+- [ ] Bridge mode
+- [ ] Packet filtering
+- [ ] Rate limiting
+- [ ] More database options (SQLite, MySQL)
+- [ ] Redis integration
+- [ ] Prometheus metrics
+- [ ] Multi-node deployment with Docker Compose
+- [ ] OAuth2 integration
+- [ ] RBAC (Role-Based Access Control)
 
-### 7. Admin Panel (Go+HTMX+templ)
+## 🏗️ Connection Options
 
-- [x] Client listesi, mesaj grafikleri ve sistem durumu izleme
-- [x] HTMX ile dinamik ve hızlı UI deneyimi
-- [x] templ ile Go entegrasyonu
+GoMQTT supports various connection methods:
 
-### 8. Deployment
+| Transport   | Port | Security | Description                |
+| ----------- | ---- | -------- | -------------------------- |
+| MQTT/TCP    | 1883 | -        | Standard MQTT              |
+| MQTTS/TCP   | 8883 | TLS      | Secure MQTT with TLS       |
+| MQTT/WS     | 9001 | -        | MQTT over WebSocket        |
+| MQTT/WSS    | 9443 | TLS      | MQTT over Secure WebSocket |
+| REST API    | 8080 | JWT      | HTTP REST API              |
+| Admin Panel | 8081 | JWT      | Web interface              |
 
-- [x] Dockerfile ve docker-compose.yml dosyası
-- [x] Minimal konfigürasyonla ayağa kaldırılabilir yapı
+## 📚 Getting Started
 
----
+For installation and configuration instructions, see [installation.md](installation.md).
 
-## 🖥️ Sistem Gereksinimleri
+For client examples and code samples in various programming languages, see [examples.md](examples.md).
 
-| Bileşen        | Minimum Gereksinim                         |
-| :------------- | :----------------------------------------- |
-| Go             | 1.24+                                      |
-| PostgreSQL     | 16+                                        |
-| Linux Server   | Ubuntu 22.04 önerilir                      |
-| MQTT Clientlar | MQTT v3.1.1 veya v5 destekli tüm clientlar |
+## 💡 Contributing
 
----
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## ⚙️ Geliştirme Ortamı Kurulumu
+## 📄 License
 
-```bash
-# Go kurulumu
-sudo apt update
-sudo apt install golang-go
-
-# PostgreSQL kurulumu
-sudo apt install postgresql postgresql-contrib
-
-# Geliştirme için kütüphaneler
-go get github.com/eclipse/paho.mqtt.golang
-go get github.com/jackc/pgx/v5
-go get github.com/go-chi/chi/v5
-go get github.com/a-h/templ
-```
-
----
-
-## 📡 MQTT Clientlar İçin Örnekler
-
-### React Native (mobil cihazlar için)
-
-```bash
-npm install mqtt
-```
-
-```javascript
-import mqtt from "mqtt";
-
-const client = mqtt.connect("wss://broker-address:port");
-
-client.on("connect", () => {
-  client.subscribe("sensor/temperature");
-  client.publish("sensor/temperature", "23°C");
-});
-```
-
-### Go (IoT cihazı için)
-
-```go
-package main
-
-import (
-    MQTT "github.com/eclipse/paho.mqtt.golang"
-    "fmt"
-)
-
-func main() {
-    opts := MQTT.NewClientOptions().AddBroker("tcp://broker-address:1883")
-    client := MQTT.NewClient(opts)
-
-    if token := client.Connect(); token.Wait() && token.Error() != nil {
-        panic(token.Error())
-    }
-
-    token := client.Publish("sensor/temperature", 0, false, "23°C")
-    token.Wait()
-
-    fmt.Println("Message published")
-}
-```
-
----
-
-## 📚 İlham Kaynakları
-
-- [Eclipse Mosquitto](https://mosquitto.org/)
-- [EMQX](https://www.emqx.io/)
-- [VerneMQ](https://vernemq.com/)
-- [NanoMQ](https://nanomq.io/)
-
----
-
-# 🚀 Hedefimiz
-
-> C ile yazılan brokerların performansını koruyup,  
-> Go diliyle **esnek, genişletilebilir** ve **modern** bir MQTT dünyası kurmak!
-
----
-
-## 📦 Lisans
-
-MIT License (özgür kullanım)
-
----
-
-# ✍️ NOT
-
-Bu proje **gerçek bir production-ready** broker olma potansiyeline sahiptir.  
-İlk versiyonda hafif tutulacak, sonra ileri seviye optimizasyonlar (Zero-Copy IO, event-driven networking) yapılabilir.
+This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
