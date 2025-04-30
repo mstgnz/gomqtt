@@ -41,19 +41,44 @@ func main() {
 	authService := auth.New(cfg.Auth.JWTSecret)
 
 	// Setup storage
-	store, err := storage.NewPostgresStorage(cfg.GetDatabaseURL())
-	if err != nil {
-		log.Printf("Warning: Failed to connect to database: %v", err)
-		log.Println("Continuing without database support")
-	} else {
+	var store storage.Storage
+	var storageErr error
+
+	switch cfg.Storage.Type {
+	case "redis":
+		if cfg.Redis.Enabled {
+			log.Printf("Setting up Redis storage...")
+			store, storageErr = storage.NewRedisStorage(cfg.GetRedisURL(), cfg.Redis.KeyPrefix)
+			if storageErr != nil {
+				log.Printf("Warning: Failed to connect to Redis: %v", storageErr)
+				log.Println("Continuing without Redis support")
+			} else {
+				log.Printf("Redis storage initialized at %s:%d", cfg.Redis.Host, cfg.Redis.Port)
+			}
+		} else {
+			log.Printf("Redis is configured as storage type but not enabled in config")
+		}
+	case "postgres", "": // Default to PostgreSQL if not specified
+		log.Printf("Setting up PostgreSQL storage...")
+		store, storageErr = storage.NewPostgresStorage(cfg.GetDatabaseURL())
+		if storageErr != nil {
+			log.Printf("Warning: Failed to connect to database: %v", storageErr)
+			log.Println("Continuing without database support")
+		} else {
+			log.Printf("PostgreSQL storage initialized at %s:%d", cfg.Database.Host, cfg.Database.Port)
+		}
+	default:
+		log.Printf("Unknown storage type: %s, no storage will be used", cfg.Storage.Type)
+	}
+
+	// Setup storage cleanup if storage is available
+	if store != nil && cfg.Storage.Enabled {
 		defer store.Close()
 
 		// Start message cleanup service if storage is enabled
-		if cfg.Storage.Enabled {
-			cleanupInterval := time.Duration(cfg.Storage.CleanupInterval) * time.Hour
-			store.StartMessageCleanup(cleanupInterval)
-			log.Printf("Message cleanup service started with interval: %s", cleanupInterval)
-		}
+		cleanupInterval := time.Duration(cfg.Storage.CleanupInterval) * time.Hour
+		store.StartMessageCleanup(cleanupInterval)
+		log.Printf("Message cleanup service started with interval: %s", cleanupInterval)
 	}
 
 	// Initialize plugin registry

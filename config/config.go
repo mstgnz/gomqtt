@@ -65,11 +65,21 @@ type Config struct {
 		SSLMode  string `json:"ssl_mode"`
 	} `json:"database"`
 
+	Redis struct {
+		Enabled   bool   `json:"enabled"`
+		Host      string `json:"host"`
+		Port      int    `json:"port"`
+		Password  string `json:"password"`
+		DB        int    `json:"db"`
+		KeyPrefix string `json:"key_prefix"`
+	} `json:"redis"`
+
 	Storage struct {
-		Enabled          bool `json:"enabled"`
-		MessageRetention int  `json:"message_retention"` // in hours, 0 = forever
-		CleanupInterval  int  `json:"cleanup_interval"`  // in hours
-		BatchSize        int  `json:"batch_size"`        // for batch operations
+		Enabled          bool   `json:"enabled"`
+		Type             string `json:"type"`              // "postgres" or "redis"
+		MessageRetention int    `json:"message_retention"` // in hours, 0 = forever
+		CleanupInterval  int    `json:"cleanup_interval"`  // in hours
+		BatchSize        int    `json:"batch_size"`        // for batch operations
 	} `json:"storage"`
 
 	Plugins struct {
@@ -146,8 +156,17 @@ func DefaultConfig() *Config {
 	cfg.Database.DBName = "gomqtt"
 	cfg.Database.SSLMode = "disable"
 
+	// Redis defaults
+	cfg.Redis.Enabled = false
+	cfg.Redis.Host = "localhost"
+	cfg.Redis.Port = 6379
+	cfg.Redis.Password = ""
+	cfg.Redis.DB = 0
+	cfg.Redis.KeyPrefix = "gomqtt:"
+
 	// Storage defaults
 	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "postgres"     // Default to PostgreSQL
 	cfg.Storage.MessageRetention = 24 // Store messages for 24 hours
 	cfg.Storage.CleanupInterval = 6   // Run cleanup every 6 hours
 	cfg.Storage.BatchSize = 100       // Process up to 100 messages at a time
@@ -226,4 +245,19 @@ func (c *Config) GetDatabaseURL() string {
 		c.Database.DBName,
 		c.Database.SSLMode,
 	)
+}
+
+// GetRedisURL returns the Redis connection URL
+func (c *Config) GetRedisURL() string {
+	if c.Redis.Password != "" {
+		return fmt.Sprintf("redis://:%s@%s:%d/%d",
+			c.Redis.Password,
+			c.Redis.Host,
+			c.Redis.Port,
+			c.Redis.DB)
+	}
+	return fmt.Sprintf("redis://%s:%d/%d",
+		c.Redis.Host,
+		c.Redis.Port,
+		c.Redis.DB)
 }

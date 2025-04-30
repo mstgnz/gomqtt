@@ -18,13 +18,13 @@ import (
 type Server struct {
 	Router     chi.Router
 	Auth       *auth.Auth
-	Storage    *storage.PostgresStorage
+	Storage    storage.Storage
 	ListenAddr string
 	httpServer *http.Server
 }
 
 // NewServer creates a new REST API server
-func NewServer(listenAddr string, authService *auth.Auth, storage *storage.PostgresStorage) *Server {
+func NewServer(listenAddr string, authService *auth.Auth, storage storage.Storage) *Server {
 	s := &Server{
 		Router:     chi.NewRouter(),
 		Auth:       authService,

@@ -25,6 +25,21 @@
     "db_name": "gomqtt",
     "ssl_mode": "disable"
   },
+  "redis": {
+    "enabled": true,
+    "host": "redis",
+    "port": 6379,
+    "password": "",
+    "db": 0,
+    "key_prefix": "gomqtt:"
+  },
+  "storage": {
+    "enabled": true,
+    "type": "redis",
+    "message_retention": 24,
+    "cleanup_interval": 6,
+    "batch_size": 100
+  },
   "plugins": {
     "enabled": true,
     "directory": "./plugins",

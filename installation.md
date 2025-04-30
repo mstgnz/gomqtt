@@ -7,7 +7,8 @@ This document contains detailed installation and configuration instructions for 
 | Component    | Minimum Requirement                   |
 | :----------- | :------------------------------------ |
 | Go           | 1.24+                                 |
-| PostgreSQL   | 16+                                   |
+| PostgreSQL   | 16+ (optional if using Redis)         |
+| Redis        | 7+ (optional if using PostgreSQL)     |
 | Linux Server | Ubuntu 22.04 recommended              |
 | MQTT Clients | Any clients supporting MQTT v3.1.1/v5 |
 
@@ -89,8 +90,17 @@ Here's an example of a configuration file with common settings:
     "db_name": "gomqtt",
     "ssl_mode": "disable"
   },
+  "redis": {
+    "enabled": false,
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "db": 0,
+    "key_prefix": "gomqtt:"
+  },
   "storage": {
     "enabled": true,
+    "type": "postgres",
     "message_retention": 24,
     "cleanup_interval": 1,
     "batch_size": 100
@@ -104,6 +114,33 @@ Here's an example of a configuration file with common settings:
     "level": "info",
     "format": "text",
     "file": ""
+  }
+}
+```
+
+### Storage Configuration
+
+GoMQTT supports two storage backends:
+
+1. **PostgreSQL**: Default storage option, best for high-volume deployments and complex queries.
+2. **Redis**: Lightweight in-memory storage with persistence, ideal for edge devices or simpler deployments.
+
+To use Redis as the storage backend:
+
+```json
+{
+  "redis": {
+    "enabled": true,
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "db": 0,
+    "key_prefix": "gomqtt:"
+  },
+  "storage": {
+    "enabled": true,
+    "type": "redis",
+    "message_retention": 24
   }
 }
 ```
@@ -157,7 +194,7 @@ docker run -d \
 
 ## Docker Compose Installation
 
-For a more complete setup including PostgreSQL:
+For a complete setup including PostgreSQL and Redis:
 
 ```yaml
 # docker-compose.yml
@@ -178,11 +215,14 @@ services:
       - ./certs:/app/certs
     depends_on:
       - postgres
+      - redis
     environment:
       - DB_HOST=postgres
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - DB_NAME=gomqtt
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 
   postgres:
     image: postgres:16
@@ -195,8 +235,17 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
 volumes:
   postgres_data:
+  redis_data:
 ```
 
 To start the services:
@@ -234,5 +283,6 @@ Common issues and solutions:
 - **Authentication failed**: Verify your credentials and JWT configuration
 - **TLS connection issues**: Ensure certificates are properly configured
 - **Database connection error**: Verify PostgreSQL is running and the connection details are correct
+- **Redis connection error**: Verify Redis is running and the connection details are correct
 
 For more examples and detailed client connection instructions, see [examples.md](examples.md).

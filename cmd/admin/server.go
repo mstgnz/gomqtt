@@ -17,7 +17,7 @@ import (
 // Server represents the admin panel server
 type Server struct {
 	Router      chi.Router
-	Storage     *storage.PostgresStorage
+	Storage     storage.Storage
 	ListenAddr  string
 	TemplateDir string
 	templates   map[string]*template.Template
@@ -25,7 +25,7 @@ type Server struct {
 }
 
 // NewServer creates a new admin panel server
-func NewServer(listenAddr, templateDir string, storage *storage.PostgresStorage) *Server {
+func NewServer(listenAddr, templateDir string, storage storage.Storage) *Server {
 	s := &Server{
 		Router:      chi.NewRouter(),
 		Storage:     storage,

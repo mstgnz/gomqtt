@@ -16,51 +16,6 @@ type PostgresStorage struct {
 	pool *pgxpool.Pool
 }
 
-// Message represents a stored MQTT message
-type Message struct {
-	ID        int64
-	Topic     string
-	Payload   []byte
-	QoS       byte
-	Retained  bool
-	ClientID  string
-	Timestamp time.Time
-}
-
-// MessageQuery represents query parameters for filtering messages
-type MessageQuery struct {
-	Topic         string
-	ClientID      string
-	FromTimestamp time.Time
-	ToTimestamp   time.Time
-	Limit         int
-	Offset        int
-}
-
-// ClientInfo stores information about MQTT clients
-type ClientInfo struct {
-	ClientID    string
-	Username    string
-	LastSeen    time.Time
-	Connected   bool
-	ConnectTime time.Time
-}
-
-// Permission represents a permission for API responses
-type Permission struct {
-	Username     string `json:"username"`
-	TopicPattern string `json:"topic_pattern"`
-	AccessLevel  string `json:"access_level"`
-}
-
-// MessagesPage represents a paginated result of messages
-type MessagesPage struct {
-	Messages   []Message `json:"messages"`
-	TotalCount int       `json:"total_count"`
-	HasMore    bool      `json:"has_more"`
-	NextOffset int       `json:"next_offset,omitempty"`
-}
-
 // NewPostgresStorage creates a new PostgreSQL storage instance
 func NewPostgresStorage(connString string) (*PostgresStorage, error) {
 	config, err := pgxpool.ParseConfig(connString)
@@ -259,86 +214,68 @@ func (s *PostgresStorage) GetMessages(query MessageQuery) (*MessagesPage, error)
 	`
 
 	var conditions []string
-	var params []any
-	paramIndex := 1
+	var params []interface{}
+	paramIdx := 1
 
-	// Add filters
+	// Apply filters
 	if query.Topic != "" {
-		// Support for topic patterns with wildcards
-		if strings.Contains(query.Topic, "#") || strings.Contains(query.Topic, "+") {
-			// This is a simplified wildcard replacement - a more complex implementation
-			// would handle MQTT wildcard semantics properly
-			topicPattern := strings.ReplaceAll(query.Topic, "#", "%")
-			topicPattern = strings.ReplaceAll(topicPattern, "+", "%")
-
-			conditions = append(conditions, fmt.Sprintf("topic LIKE $%d", paramIndex))
-			params = append(params, topicPattern)
-		} else {
-			conditions = append(conditions, fmt.Sprintf("topic = $%d", paramIndex))
-			params = append(params, query.Topic)
-		}
-		paramIndex++
+		conditions = append(conditions, fmt.Sprintf("topic = $%d", paramIdx))
+		params = append(params, query.Topic)
+		paramIdx++
 	}
 
 	if query.ClientID != "" {
-		conditions = append(conditions, fmt.Sprintf("client_id = $%d", paramIndex))
+		conditions = append(conditions, fmt.Sprintf("client_id = $%d", paramIdx))
 		params = append(params, query.ClientID)
-		paramIndex++
+		paramIdx++
 	}
 
 	if !query.FromTimestamp.IsZero() {
-		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", paramIndex))
+		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", paramIdx))
 		params = append(params, query.FromTimestamp)
-		paramIndex++
+		paramIdx++
 	}
 
 	if !query.ToTimestamp.IsZero() {
-		conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", paramIndex))
+		conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", paramIdx))
 		params = append(params, query.ToTimestamp)
-		paramIndex++
+		paramIdx++
 	}
 
-	// Only include non-expired messages
-	conditions = append(conditions, "(expires_at IS NULL OR expires_at > NOW())")
-
-	// Add conditions to both queries
+	// Add conditions to the queries
 	for _, condition := range conditions {
 		baseQuery += " AND " + condition
 		countQuery += " AND " + condition
 	}
 
-	// Add pagination and ordering
+	// Add order, limit and offset
 	baseQuery += " ORDER BY timestamp DESC"
 
-	// Set default limit if not specified
-	limit := 100
-	if query.Limit > 0 {
-		limit = query.Limit
+	// Set default limit if not provided
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 100
 	}
 
-	baseQuery += fmt.Sprintf(" LIMIT $%d", paramIndex)
-	params = append(params, limit)
-	paramIndex++
+	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", paramIdx, paramIdx+1)
+	params = append(params, limit, query.Offset)
 
-	if query.Offset > 0 {
-		baseQuery += fmt.Sprintf(" OFFSET $%d", paramIndex)
-		params = append(params, query.Offset)
-	}
-
-	// Query for count first
+	// Query for total count
+	ctx := context.Background()
 	var totalCount int
-	err := s.pool.QueryRow(context.Background(), countQuery, params[:len(params)-1]...).Scan(&totalCount)
+	err := s.pool.QueryRow(ctx, countQuery, params[:paramIdx-1]...).Scan(&totalCount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to count messages: %w", err)
+		return nil, fmt.Errorf("failed to get message count: %w", err)
 	}
 
 	// Execute the main query
-	rows, err := s.pool.Query(context.Background(), baseQuery, params...)
+	rows, err := s.pool.Query(ctx, baseQuery, params...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
 	defer rows.Close()
 
+	// Process the result
 	var messages []Message
 	for rows.Next() {
 		var msg Message
@@ -352,16 +289,16 @@ func (s *PostgresStorage) GetMessages(query MessageQuery) (*MessagesPage, error)
 			&msg.Timestamp,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan message row: %w", err)
+			return nil, fmt.Errorf("failed to scan message: %w", err)
 		}
 		messages = append(messages, msg)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating message rows: %w", err)
+		return nil, fmt.Errorf("error iterating through result rows: %w", err)
 	}
 
-	// Calculate if there are more results and the next offset
+	// Check if there are more results
 	hasMore := totalCount > query.Offset+len(messages)
 	nextOffset := 0
 	if hasMore {
@@ -376,12 +313,13 @@ func (s *PostgresStorage) GetMessages(query MessageQuery) (*MessagesPage, error)
 	}, nil
 }
 
-// CleanupExpiredMessages removes expired messages from the database
+// CleanupExpiredMessages removes expired messages from storage
 func (s *PostgresStorage) CleanupExpiredMessages() (int, error) {
-	result, err := s.pool.Exec(context.Background(), `
-		DELETE FROM messages 
-		WHERE expires_at < $1
-	`, time.Now())
+	ctx := context.Background()
+	result, err := s.pool.Exec(ctx, `
+		DELETE FROM messages
+		WHERE expires_at < NOW()
+	`)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup expired messages: %w", err)
 	}
@@ -390,7 +328,7 @@ func (s *PostgresStorage) CleanupExpiredMessages() (int, error) {
 	return int(count), nil
 }
 
-// StartMessageCleanup starts a goroutine that periodically cleans up expired messages
+// StartMessageCleanup starts a background task to clean up expired messages
 func (s *PostgresStorage) StartMessageCleanup(interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -405,14 +343,14 @@ func (s *PostgresStorage) StartMessageCleanup(interval time.Duration) {
 			}
 		}
 	}()
-
-	log.Printf("Started message cleanup scheduler with interval %s", interval)
 }
 
-// GetClientInfo retrieves client information
+// GetClientInfo retrieves client information for a specific client ID
 func (s *PostgresStorage) GetClientInfo(clientID string) (*ClientInfo, error) {
+	ctx := context.Background()
 	var client ClientInfo
-	err := s.pool.QueryRow(context.Background(), `
+
+	err := s.pool.QueryRow(ctx, `
 		SELECT client_id, username, last_seen, connected, connect_time
 		FROM clients
 		WHERE client_id = $1
@@ -424,44 +362,45 @@ func (s *PostgresStorage) GetClientInfo(clientID string) (*ClientInfo, error) {
 		&client.ConnectTime,
 	)
 
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get client info: %w", err)
 	}
 
 	return &client, nil
 }
 
-// UpdateClientConnection updates a client's connection status
+// UpdateClientConnection updates client connection status
 func (s *PostgresStorage) UpdateClientConnection(clientID, username string, connected bool) error {
+	ctx := context.Background()
 	now := time.Now()
 
-	// First try to update the existing client
-	_, err := s.pool.Exec(context.Background(), `
-		UPDATE clients 
-		SET username = $1, connected = $2, last_seen = $3
-		WHERE client_id = $4
-	`, username, connected, now, clientID)
-
-	// If it's a new client and needs to be connected, insert it
-	if err == nil && connected {
-		_, err = s.pool.Exec(context.Background(), `
+	if connected {
+		_, err := s.pool.Exec(ctx, `
 			INSERT INTO clients (client_id, username, last_seen, connected, connect_time)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (client_id) DO NOTHING
+			ON CONFLICT (client_id) DO UPDATE
+			SET username = $2, last_seen = $3, connected = $4, connect_time = $5
 		`, clientID, username, now, connected, now)
+		return err
+	} else {
+		_, err := s.pool.Exec(ctx, `
+			UPDATE clients
+			SET last_seen = $2, connected = $3
+			WHERE client_id = $1
+		`, clientID, now, connected)
+		return err
 	}
-
-	return err
 }
 
-// GetAllPermissions retrieves all permissions from the database
+// GetAllPermissions retrieves all permission entries
 func (s *PostgresStorage) GetAllPermissions() ([]Permission, error) {
-	rows, err := s.pool.Query(context.Background(), `
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx, `
 		SELECT username, topic_pattern, access_level
 		FROM permissions
+		ORDER BY username, topic_pattern
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query permissions: %w", err)
@@ -471,53 +410,112 @@ func (s *PostgresStorage) GetAllPermissions() ([]Permission, error) {
 	var permissions []Permission
 	for rows.Next() {
 		var perm Permission
-		var accessLevelInt int
-		err := rows.Scan(&perm.Username, &perm.TopicPattern, &accessLevelInt)
+		var accessLevel int
+
+		err := rows.Scan(&perm.Username, &perm.TopicPattern, &accessLevel)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan permission: %w", err)
 		}
 
-		// Convert access level integer to string
-		switch accessLevelInt {
-		case 0:
-			perm.AccessLevel = "read-only"
-		case 1:
-			perm.AccessLevel = "read-write"
-		case 2:
-			perm.AccessLevel = "admin"
-		default:
-			perm.AccessLevel = "unknown"
-		}
-
+		// Convert access level to string
+		perm.AccessLevel = fmt.Sprintf("%d", accessLevel)
 		permissions = append(permissions, perm)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating permission rows: %w", err)
+		return nil, fmt.Errorf("error iterating through permissions: %w", err)
 	}
 
 	return permissions, nil
 }
 
-// StorePermission stores a permission in the database
+// StorePermission stores a permission entry
 func (s *PostgresStorage) StorePermission(username, topicPattern string, accessLevel int) error {
-	_, err := s.pool.Exec(context.Background(), `
+	ctx := context.Background()
+	_, err := s.pool.Exec(ctx, `
 		INSERT INTO permissions (username, topic_pattern, access_level)
 		VALUES ($1, $2, $3)
-		ON CONFLICT (username, topic_pattern) 
-		DO UPDATE SET 
-			access_level = EXCLUDED.access_level
+		ON CONFLICT (username, topic_pattern) DO UPDATE
+		SET access_level = $3
 	`, username, topicPattern, accessLevel)
-
 	return err
 }
 
-// DeletePermission removes a permission from the database
+// DeletePermission deletes a permission entry
 func (s *PostgresStorage) DeletePermission(username, topicPattern string) error {
-	_, err := s.pool.Exec(context.Background(), `
+	ctx := context.Background()
+	_, err := s.pool.Exec(ctx, `
 		DELETE FROM permissions
 		WHERE username = $1 AND topic_pattern = $2
 	`, username, topicPattern)
-
 	return err
+}
+
+// DeleteRetainedMessage deletes a retained message for a specific topic
+func (s *PostgresStorage) DeleteRetainedMessage(topic string) error {
+	_, err := s.pool.Exec(context.Background(), `
+		DELETE FROM messages
+		WHERE topic = $1 AND retained = true
+	`, topic)
+	return err
+}
+
+// GetRetainedMessages retrieves retained messages for a specific topic pattern
+func (s *PostgresStorage) GetRetainedMessages(topicPattern string) ([]Message, error) {
+	ctx := context.Background()
+	var messages []Message
+
+	query := `
+		SELECT id, topic, payload, qos, retained, client_id, timestamp
+		FROM messages
+		WHERE retained = true
+	`
+
+	params := []interface{}{}
+
+	// If a specific topic pattern is provided, filter by it
+	if topicPattern != "" && topicPattern != "#" {
+		// Convert MQTT wildcards to SQL LIKE pattern
+		// # multi-level wildcard becomes %
+		// + single-level wildcard becomes a SQL pattern for single level
+		sqlPattern := strings.ReplaceAll(topicPattern, "#", "%")
+
+		// Replace + with a pattern that matches a single level
+		// This is a simplified version - for production code you'd want a more robust conversion
+		sqlPattern = strings.ReplaceAll(sqlPattern, "+", "[^/]*")
+
+		query += " AND topic LIKE $1"
+		params = append(params, sqlPattern)
+	}
+
+	// Execute the query
+	rows, err := s.pool.Query(ctx, query, params...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query retained messages: %w", err)
+	}
+	defer rows.Close()
+
+	// Process the result rows
+	for rows.Next() {
+		var msg Message
+		err := rows.Scan(
+			&msg.ID,
+			&msg.Topic,
+			&msg.Payload,
+			&msg.QoS,
+			&msg.Retained,
+			&msg.ClientID,
+			&msg.Timestamp,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan retained message: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating through result rows: %w", err)
+	}
+
+	return messages, nil
 }

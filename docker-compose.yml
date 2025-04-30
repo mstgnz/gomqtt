@@ -15,11 +15,14 @@ services:
       - DB_NAME=gomqtt
       - DB_SSLMODE=disable
       - JWT_SECRET=change-me-in-production
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     volumes:
       - ./config:/app/config
       - ./plugins:/app/plugins
     depends_on:
       - postgres
+      - redis
     restart: unless-stopped
     networks:
       - gomqtt-network
@@ -38,9 +41,21 @@ services:
     networks:
       - gomqtt-network
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - gomqtt-network
+    command: redis-server --appendonly yes
+
 networks:
   gomqtt-network:
     driver: bridge
 
 volumes:
   postgres-data:
+  redis-data:

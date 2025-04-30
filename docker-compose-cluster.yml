@@ -20,6 +20,22 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: gomqtt-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - gomqtt-network
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   gomqtt-node1:
     build:
       context: .
@@ -27,6 +43,8 @@ services:
     container_name: gomqtt-node1
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "1883:1883" # MQTT
@@ -41,6 +59,8 @@ services:
       - ./config/cluster-node1.json:/app/config/default.json
     environment:
       - NODE_ID=node1
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 
   gomqtt-node2:
     build:
@@ -49,6 +69,8 @@ services:
     container_name: gomqtt-node2
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "1884:1883" # MQTT (mapped to different host port)
@@ -63,6 +85,8 @@ services:
       - ./config/cluster-node2.json:/app/config/default.json
     environment:
       - NODE_ID=node2
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 
   gomqtt-node3:
     build:
@@ -71,6 +95,8 @@ services:
     container_name: gomqtt-node3
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "1885:1883" # MQTT (mapped to different host port)
@@ -85,6 +111,8 @@ services:
       - ./config/cluster-node3.json:/app/config/default.json
     environment:
       - NODE_ID=node3
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 
 networks:
   gomqtt-network:
@@ -92,3 +120,4 @@ networks:
 
 volumes:
   postgres-data:
+  redis-data:
