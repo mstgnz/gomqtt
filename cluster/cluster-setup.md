@@ -395,6 +395,81 @@ For high-load environments:
 
 ## Monitoring
 
-- HAProxy Stats: `http://localhost:8404`
-- Admin UI: `http://localhost:8081`
-- API Metrics: `http://localhost:8080/metrics`
+GoMQTT exports Prometheus metrics that can be used to monitor the cluster. The metrics provide valuable insights into the performance and health of your MQTT broker deployment.
+
+### Setting Up Monitoring
+
+A dedicated Docker Compose file is provided in the `metrics` directory for setting up Prometheus and Grafana:
+
+```bash
+cd metrics
+docker-compose up -d
+```
+
+This will start:
+
+- **Prometheus**: For collecting and storing metrics (available at http://localhost:9090)
+- **Grafana**: For visualizing metrics with pre-configured dashboards (available at http://localhost:3000)
+- **Node Exporter**: For collecting host system metrics
+- **HAProxy Exporter**: For collecting HAProxy metrics
+
+### Available Dashboards
+
+Two pre-configured Grafana dashboards are provided:
+
+1. **GoMQTT Metrics Dashboard**: Shows metrics for individual broker instances including:
+
+   - Connected clients
+   - Message rates
+   - Memory and CPU usage
+   - Subscription counts
+   - Authentication statistics
+
+2. **GoMQTT Cluster Dashboard**: Shows cluster-specific metrics including:
+   - Active nodes
+   - Message distribution across nodes
+   - Client distribution
+   - Per-node resource usage
+
+### Accessing Dashboards
+
+1. Open Grafana at http://localhost:3000 (default login: admin/admin)
+2. Navigate to Dashboards → GoMQTT folder
+3. Select either the "GoMQTT Metrics Dashboard" or "GoMQTT Cluster Dashboard"
+
+### Alerts
+
+Prometheus is configured with alerting rules for critical conditions:
+
+- High CPU/memory usage
+- Node failures
+- Excessive connections
+- Connection spikes
+- High message latency
+
+To view configured alerts, visit Prometheus at http://localhost:9090 and navigate to the "Alerts" section.
+
+### Metrics Endpoint Configuration
+
+Each GoMQTT node exposes its metrics on port 9090 by default. Make sure each node's configuration includes:
+
+```json
+{
+  "metrics": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 9090,
+    "path": "/metrics"
+  }
+}
+```
+
+## Monitoring Key Metrics
+
+The most important metrics to monitor for a production deployment:
+
+- `gomqtt_connected_clients`: Current number of connected clients
+- `gomqtt_messages_received_total` and `gomqtt_messages_sent_total`: Message throughput
+- `gomqtt_system_memory_bytes` and `gomqtt_system_cpu_percent`: Resource usage
+- `gomqtt_message_processing_seconds`: Message processing latency
+- `gomqtt_cluster_nodes_active`: Number of active cluster nodes

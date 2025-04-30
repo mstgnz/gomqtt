@@ -1,0 +1,44 @@
+# GoMQTT Prometheus Configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# Load rules
+rule_files:
+  # - "alerts.yml"
+
+scrape_configs:
+  # Single node configuration
+  - job_name: "gomqtt"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          instance: "gomqtt-single"
+
+  # Cluster configuration
+  - job_name: "gomqtt-cluster"
+    static_configs:
+      - targets:
+          - "gomqtt-node1:9090"
+          - "gomqtt-node2:9090"
+          - "gomqtt-node3:9090"
+
+  # HAProxy metrics
+  - job_name: "haproxy"
+    static_configs:
+      - targets: ["haproxy-exporter:9101"]
+
+  # Node exporter for system metrics
+  - job_name: "node"
+    static_configs:
+      - targets:
+          - "node-exporter:9100"
+        labels:
+          instance: "host-system" 

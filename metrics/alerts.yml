@@ -1,0 +1,106 @@
+groups:
+- name: gomqtt_alerts
+  rules:
+  # System resource alerts
+  - alert: HighCpuUsage
+    expr: gomqtt_system_cpu_percent > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High CPU usage ({{ $value }}%)"
+      description: "GoMQTT instance {{ $labels.instance }} has CPU usage above 80% for more than 5 minutes."
+
+  - alert: HighMemoryUsage
+    expr: gomqtt_system_memory_bytes / (1024 * 1024 * 1024) > 16
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High memory usage ({{ $value | humanize }}GB)"
+      description: "GoMQTT instance {{ $labels.instance }} memory usage exceeds 16GB for more than 5 minutes."
+
+  # Connection alerts
+  - alert: TooManyConnections
+    expr: gomqtt_connected_clients > 50000
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Too many connections ({{ $value }})"
+      description: "GoMQTT instance {{ $labels.instance }} has more than 50,000 concurrent connections."
+  
+  - alert: ConnectionSpike
+    expr: rate(gomqtt_connections_total[1m]) > 1000
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Connection spike detected ({{ $value | humanize }} connections/sec)"
+      description: "GoMQTT instance {{ $labels.instance }} is receiving more than 1000 connections per second."
+
+  # Performance alerts
+  - alert: HighMessageLatency
+    expr: histogram_quantile(0.95, sum(rate(gomqtt_message_processing_seconds_bucket[5m])) by (le)) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High message processing latency ({{ $value }}s)"
+      description: "95th percentile of message processing time is greater than 100ms."
+  
+  - alert: HighMessageRate
+    expr: sum(rate(gomqtt_messages_received_total[1m])) > 10000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High message rate ({{ $value | humanize }} msgs/sec)"
+      description: "GoMQTT is processing more than 10,000 messages per second for more than 5 minutes."
+
+  # Authentication alerts
+  - alert: HighAuthFailureRate
+    expr: rate(gomqtt_auth_failure_total[5m]) > 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High authentication failure rate ({{ $value | humanize }} failures/sec)"
+      description: "GoMQTT instance {{ $labels.instance }} has more than 10 authentication failures per second."
+
+  # Cluster alerts
+  - alert: NodeDown
+    expr: up{job="gomqtt-cluster"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Node down: {{ $labels.instance }}"
+      description: "GoMQTT cluster node {{ $labels.instance }} has been down for more than 1 minute."
+  
+  - alert: ClusterNodeImbalance
+    expr: max(gomqtt_connected_clients) by (instance) > 2 * min(gomqtt_connected_clients) by (instance)
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Cluster node imbalance detected"
+      description: "Connection distribution among cluster nodes is imbalanced by more than 2x."
+
+  - alert: RetainedMessagesExcessive 
+    expr: gomqtt_retained_messages > 100000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Excessive retained messages ({{ $value }})"
+      description: "GoMQTT instance {{ $labels.instance }} has more than 100,000 retained messages."
+
+  - alert: SubscriptionsExcessive
+    expr: gomqtt_active_subscriptions > 500000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Excessive subscriptions ({{ $value }})"
+      description: "GoMQTT instance {{ $labels.instance }} has more than 500,000 active subscriptions." 
