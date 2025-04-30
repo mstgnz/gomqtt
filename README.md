@@ -292,7 +292,3 @@ GOMQTT_PORT=1883
 GOMQTT_REDIS_URL=redis://localhost:6379
 GOMQTT_AUTH_ENABLED=true
 ```
-
-## Documentation
-
-For full documentation, visit [https://gomqtt.io/docs](https://gomqtt.io/docs).
