@@ -134,6 +134,74 @@ func (s *PostgresStorage) initSchema() error {
 		return fmt.Errorf("failed to create permissions table: %w", err)
 	}
 
+	// Create users table
+	_, err = tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS users (
+			username TEXT PRIMARY KEY,
+			password TEXT NOT NULL,
+			is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			last_login TIMESTAMP WITH TIME ZONE
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create users table: %w", err)
+	}
+
+	// Create api_keys table
+	_, err = tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS api_keys (
+			key TEXT PRIMARY KEY,
+			username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+			description TEXT,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			expires_at TIMESTAMP WITH TIME ZONE,
+			last_used TIMESTAMP WITH TIME ZONE
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create api_keys table: %w", err)
+	}
+
+	// Create roles table
+	_, err = tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS roles (
+			name TEXT PRIMARY KEY,
+			description TEXT,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create roles table: %w", err)
+	}
+
+	// Create user_roles table (many-to-many relationship)
+	_, err = tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS user_roles (
+			username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+			role_name TEXT NOT NULL REFERENCES roles(name) ON DELETE CASCADE,
+			PRIMARY KEY (username, role_name)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create user_roles table: %w", err)
+	}
+
+	// Create role_permissions table
+	_, err = tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS role_permissions (
+			id SERIAL PRIMARY KEY,
+			role_name TEXT NOT NULL REFERENCES roles(name) ON DELETE CASCADE,
+			topic_pattern TEXT NOT NULL,
+			access_level INTEGER NOT NULL,
+			UNIQUE(role_name, topic_pattern)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create role_permissions table: %w", err)
+	}
+
 	return tx.Commit(ctx)
 }
 

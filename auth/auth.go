@@ -777,6 +777,7 @@ func (a *Auth) LoadRolesFromFile(filePath string) error {
 				TopicPattern: perm.TopicPattern,
 				AccessLevel:  AccessLevel(perm.AccessLevel),
 			}
+
 		}
 
 		// Create or update the role
