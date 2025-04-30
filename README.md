@@ -16,6 +16,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - 🔄 **Multi-Transport**: Supports TCP, WebSocket, TLS (MQTTS), and WSS
 - 📊 **Admin Panel**: Fast interface built with Go + HTMX + templ
 - 🛢️ **Database Integration**: Message and session persistence with PostgreSQL
+- 🧰 **CLI Tool**: Comprehensive command-line interface for management and monitoring
 
 ## 🚀 Features
 
@@ -80,6 +81,16 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - System resource usage
 - Message statistics
 - Prometheus metrics
+- Command-line management tools
+
+### Command-Line Interface
+
+- 🖥️ **Full Management**: Manage clients, topics, users, and configuration
+- 📊 **Monitoring**: View broker status and metrics
+- 🔍 **Inspection**: List clients, topics, and messages
+- 📝 **Publishing**: Send messages directly from the command line
+- 🧩 **Cluster Management**: Monitor and manage cluster nodes
+- 🚀 **Simple Installation**: Easy to install and use
 
 ### Clustering
 
@@ -133,6 +144,7 @@ For more detailed information, check out the following documentation:
 - [Usage Examples](examples.md) - Code samples for various languages and platforms
 - [Clustering Setup](cluster/cluster-setup.md) - Configure high-availability deployments
 - [API Documentation](cmd/api/api-docs.md) - REST API for monitoring and management
+- [CLI Tool Guide](cmd/cli/README.md) - Command-line interface documentation
 - [Configuration Guide](configuration.md) - Detailed configuration options
 - [OAuth2 Authentication](auth/oauth2-authentication.md) - Set up OAuth2 with various providers
 - [Plugin System](plugins/plugins.md) - Extend GoMQTT with custom plugins
