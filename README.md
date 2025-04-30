@@ -1,6 +1,8 @@
 # 🛰️ GoMQTT - Modern, Scalable, Lightweight MQTT Broker
 
-![GoMQTT Logo](https://via.placeholder.com/150x150/0096FF/FFFFFF?text=GoMQTT)
+<p align="center">
+  <img src="assets/logo.svg" width="150" height="150" alt="GoMQTT Logo">
+</p>
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -176,3 +178,47 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## 📄 License
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
+
+## Installation
+
+### Using Go
+
+```bash
+go get github.com/yourusername/gomqtt
+```
+
+### Using Docker
+
+```bash
+docker pull yourusername/gomqtt
+docker run -p 1883:1883 -p 8883:8883 yourusername/gomqtt
+```
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "github.com/yourusername/gomqtt"
+)
+
+func main() {
+    broker := gomqtt.NewBroker()
+    broker.Start()
+}
+```
+
+## Configuration
+
+GoMQTT can be configured using environment variables or a configuration file:
+
+```bash
+GOMQTT_PORT=1883
+GOMQTT_REDIS_URL=redis://localhost:6379
+GOMQTT_AUTH_ENABLED=true
+```
+
+## Documentation
+
+For full documentation, visit [https://gomqtt.io/docs](https://gomqtt.io/docs).
