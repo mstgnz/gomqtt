@@ -45,7 +45,7 @@ func NewRedisStorage(redisURL, keyPrefix string) (*RedisStorage, error) {
 }
 
 // key formats a Redis key with the configured prefix
-func (s *RedisStorage) key(format string, args ...interface{}) string {
+func (s *RedisStorage) key(format string, args ...any) string {
 	key := fmt.Sprintf(format, args...)
 	return s.keyPrefix + key
 }

@@ -39,6 +39,12 @@ func (s *Server) Start() error {
 	// Register Prometheus metrics handler
 	mux.Handle(s.path, promhttp.Handler())
 
+	// Add health check endpoint
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok","timestamp":"` + time.Now().Format(time.RFC3339) + `"}`))
+	})
+
 	// Add a simple index page that links to metrics
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

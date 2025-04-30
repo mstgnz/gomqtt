@@ -89,7 +89,7 @@ func (p *OAuth2Provider) ValidateOAuth2Token(token string) (string, error) {
 	}
 
 	// Parse the JSON response
-	var userInfo map[string]interface{}
+	var userInfo map[string]any
 	if err := json.Unmarshal(body, &userInfo); err != nil {
 		return "", fmt.Errorf("error parsing user info: %w", err)
 	}
@@ -165,7 +165,7 @@ func (p *OAuth2Provider) ExchangeCodeForToken(code string) (string, error) {
 		return "", fmt.Errorf("error reading token response: %w", err)
 	}
 
-	var tokenResp map[string]interface{}
+	var tokenResp map[string]any
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return "", fmt.Errorf("error parsing token response: %w", err)
 	}

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -74,6 +75,9 @@ func (s *Server) setupRoutes() {
 	// Static files
 	fileServer := http.FileServer(http.Dir(filepath.Join(s.TemplateDir, "static")))
 	s.Router.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+
+	// Health check endpoint
+	s.Router.Get("/health", s.handleHealthCheck())
 
 	// Admin routes
 	s.Router.Get("/", s.handleDashboard())
@@ -198,5 +202,21 @@ func (s *Server) handleSettings() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Implementation will come later
 		s.render(w, "settings", nil)
+	}
+}
+
+// handleHealthCheck handles the health check endpoint
+func (s *Server) handleHealthCheck() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Health check response structure
+		healthStatus := map[string]interface{}{
+			"status":    "ok",
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(healthStatus); err != nil {
+			http.Error(w, "Error encoding health status", http.StatusInternalServerError)
+		}
 	}
 }

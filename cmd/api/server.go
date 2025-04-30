@@ -27,6 +27,7 @@ type Server struct {
 	Router     chi.Router
 	Auth       *auth.Auth
 	Storage    storage.Storage
+	MQTTServer interface{} // Reference to MQTT server for health checks
 	ListenAddr string
 	httpServer *http.Server
 }
@@ -76,6 +77,9 @@ func (s *Server) Stop() error {
 // setupRoutes configures the API routes
 func (s *Server) setupRoutes() {
 	s.Router.Get("/", s.handleHome())
+
+	// Health check endpoint
+	s.Router.Get("/health", s.handleHealthCheck())
 
 	// API routes
 	s.Router.Route("/api", func(r chi.Router) {
@@ -1350,5 +1354,72 @@ func (s *Server) handleGetUserRoles() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// SetMQTTServer sets the MQTT server reference for health checks
+func (s *Server) SetMQTTServer(mqttServer interface{}) {
+	s.MQTTServer = mqttServer
+}
+
+// handleHealthCheck handles the health check endpoint
+func (s *Server) handleHealthCheck() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Health check response structure
+		healthStatus := map[string]interface{}{
+			"status":    "ok",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"services": map[string]interface{}{
+				"api": map[string]string{
+					"status": "ok",
+				},
+			},
+		}
+
+		// Add services status map if not exists
+		services, ok := healthStatus["services"].(map[string]interface{})
+		if !ok {
+			services = make(map[string]interface{})
+			healthStatus["services"] = services
+		}
+
+		// Check storage connection if available
+		if s.Storage != nil {
+			// Create a minimal query to check if storage is working
+			query := storage.MessageQuery{
+				Limit: 1,
+			}
+
+			_, err := s.Storage.GetMessages(query)
+			if err != nil {
+				healthStatus["status"] = "degraded"
+				services["storage"] = map[string]string{
+					"status":  "error",
+					"message": err.Error(),
+				}
+			} else {
+				services["storage"] = map[string]string{
+					"status": "ok",
+				}
+			}
+		}
+
+		// MQTT server status
+		if s.MQTTServer != nil {
+			// We just check if the MQTT server reference exists
+			// In a real implementation, you could call a method on the MQTT server to check its status
+			services["mqtt"] = map[string]string{
+				"status": "ok",
+			}
+		} else {
+			healthStatus["status"] = "degraded"
+			services["mqtt"] = map[string]string{
+				"status":  "unknown",
+				"message": "MQTT server reference not set",
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(healthStatus)
 	}
 }

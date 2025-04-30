@@ -214,7 +214,7 @@ func (s *PostgresStorage) GetMessages(query MessageQuery) (*MessagesPage, error)
 	`
 
 	var conditions []string
-	var params []interface{}
+	var params []any
 	paramIdx := 1
 
 	// Apply filters
@@ -471,7 +471,7 @@ func (s *PostgresStorage) GetRetainedMessages(topicPattern string) ([]Message, e
 		WHERE retained = true
 	`
 
-	params := []interface{}{}
+	params := []any{}
 
 	// If a specific topic pattern is provided, filter by it
 	if topicPattern != "" && topicPattern != "#" {

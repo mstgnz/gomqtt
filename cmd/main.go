@@ -275,6 +275,9 @@ func main() {
 	apiAddr := fmt.Sprintf("%s:%d", cfg.API.Host, cfg.API.Port)
 	apiServer := api.NewServer(apiAddr, authService, store)
 
+	// Pass MQTT server reference to API server for health checks
+	apiServer.SetMQTTServer(mqttServer)
+
 	// Create Admin Panel
 	adminAddr := fmt.Sprintf("%s:%d", cfg.API.Host, 8081) // Admin panel on port 8081
 	adminServer := admin.NewServer(adminAddr, "web/templates", store)
