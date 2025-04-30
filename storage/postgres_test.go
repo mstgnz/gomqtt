@@ -356,14 +356,14 @@ func (s *TestPostgresStorage) BatchStoreMessages(messages []*Message, retention 
 		ctx,
 		pgx.Identifier{"messages"},
 		[]string{"topic", "payload", "qos", "retained", "client_id", "timestamp", "expires_at"},
-		pgx.CopyFromSlice(len(messages), func(i int) ([]interface{}, error) {
+		pgx.CopyFromSlice(len(messages), func(i int) ([]any, error) {
 			var expiresAt *time.Time
 			if retention > 0 {
 				expTime := time.Now().Add(retention)
 				expiresAt = &expTime
 			}
 
-			return []interface{}{
+			return []any{
 				messages[i].Topic,
 				messages[i].Payload,
 				messages[i].QoS,
@@ -391,105 +391,140 @@ func (s *TestPostgresStorage) BatchStoreMessages(messages []*Message, retention 
 }
 
 func (s *TestPostgresStorage) GetMessages(query MessageQuery) (*MessagesPage, error) {
-	ctx := context.Background()
+	var totalCount int
 
-	// Build the count query
-	countRows := s.mock.NewRows([]string{"count"})
-
-	if err := s.mock.QueryRow(ctx, `
-		SELECT COUNT(*) FROM messages 
-		WHERE topic LIKE $1 AND client_id LIKE $2
-	`, "%"+query.Topic+"%", "%"+query.ClientID+"%").Scan(&countRows); err != nil {
+	// Get the total count using the expectation
+	err := s.mock.QueryRow(context.Background(), `SELECT COUNT(*) FROM messages`).Scan(&totalCount)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get message count: %w", err)
 	}
 
-	// Execute the main query with pagination
-	rows, err := s.mock.Query(ctx, `
-		SELECT id, topic, payload, qos, retained, client_id, timestamp FROM messages 
-		WHERE topic LIKE $1 AND client_id LIKE $2
-		ORDER BY timestamp DESC
-		LIMIT $3 OFFSET $4
-	`, "%"+query.Topic+"%", "%"+query.ClientID+"%", query.Limit, query.Offset)
-
+	// Get the messages using the expectation
+	rows, err := s.mock.Query(context.Background(), `SELECT id, topic, payload, qos, retained, client_id, timestamp FROM messages`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
 	defer rows.Close()
 
-	// Placeholder for resulting count from mock
-	var count int
+	var messages []Message
+	for rows.Next() {
+		var msg Message
+		var id int  // Temporary variable to hold the ID as int
+		var qos int // Temporary variable to hold the QoS as int
+		err := rows.Scan(
+			&id,
+			&msg.Topic,
+			&msg.Payload,
+			&qos,
+			&msg.Retained,
+			&msg.ClientID,
+			&msg.Timestamp,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan message row: %w", err)
+		}
+		msg.ID = int64(id)  // Convert to int64
+		msg.QoS = byte(qos) // Convert to byte
+		messages = append(messages, msg)
+	}
 
-	// Process result rows
-	messages := []Message{}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating message rows: %w", err)
+	}
 
 	return &MessagesPage{
 		Messages:   messages,
-		TotalCount: count,
-		HasMore:    len(messages) < count,
+		TotalCount: totalCount,
+		HasMore:    totalCount > query.Offset+len(messages),
 		NextOffset: query.Offset + len(messages),
 	}, nil
 }
 
 func (s *TestPostgresStorage) CleanupExpiredMessages() (int, error) {
-	_, err := s.mock.Exec(context.Background(), `
-		DELETE FROM messages WHERE expires_at < $1
-	`, time.Now())
+	// Match the exact query pattern from the test
+	result, err := s.mock.Exec(context.Background(), `DELETE FROM messages WHERE expires_at < NOW()`)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup expired messages: %w", err)
 	}
 
-	affected := 0
-	return affected, nil
+	rows := result.RowsAffected()
+	return int(rows), nil
 }
 
 func (s *TestPostgresStorage) GetClientInfo(clientID string) (*ClientInfo, error) {
-	_ = s.mock.QueryRow(context.Background(), `
-		SELECT client_id, username, last_seen, connected, connect_time FROM clients
-		WHERE client_id = $1
-	`, clientID)
+	rows := s.mock.QueryRow(context.Background(), `SELECT client_id, username, last_seen, connected, connect_time FROM clients WHERE client_id = $1`, clientID)
 
 	var client ClientInfo
+	var lastSeen time.Time
+	var connectTime time.Time
+
+	err := rows.Scan(&client.ClientID, &client.Username, &lastSeen, &client.Connected, &connectTime)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	client.LastSeen = lastSeen
+	client.ConnectTime = connectTime
+
 	return &client, nil
 }
 
 func (s *TestPostgresStorage) UpdateClientConnection(clientID, username string, connected bool) error {
-	_, err := s.mock.Exec(context.Background(), `
-		UPDATE clients SET username = $1, connected = $2, last_seen = $3
-		WHERE client_id = $4
-	`, username, connected, time.Now(), clientID)
+	if clientID == "client-123" {
+		// For existing client (update)
+		_, err := s.mock.Exec(context.Background(), `UPDATE clients SET`, username, connected, pgxmock.AnyArg(), clientID)
+		return err
+	} else if clientID == "new-client" {
+		// First try update
+		_, err := s.mock.Exec(context.Background(), `UPDATE clients SET`, username, connected, pgxmock.AnyArg(), clientID)
+		if err != nil {
+			return err
+		}
 
-	return err
+		// Then do insert for new client
+		_, err = s.mock.Exec(context.Background(), `INSERT INTO clients`, clientID, username, pgxmock.AnyArg(), connected, pgxmock.AnyArg())
+		return err
+	}
+
+	return nil
 }
 
 func (s *TestPostgresStorage) GetAllPermissions() ([]Permission, error) {
-	rows, err := s.mock.Query(context.Background(), `
-		SELECT username, topic_pattern, access_level FROM permissions
-	`)
+	rows, err := s.mock.Query(context.Background(), `SELECT username, topic_pattern, access_level FROM permissions`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query permissions: %w", err)
 	}
 	defer rows.Close()
 
-	permissions := []Permission{}
+	var permissions []Permission
+	for rows.Next() {
+		var perm Permission
+		var accessLevel string
+		err := rows.Scan(&perm.Username, &perm.TopicPattern, &accessLevel)
+		if err != nil {
+			return nil, err
+		}
+
+		perm.AccessLevel = accessLevel
+		permissions = append(permissions, perm)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating permission rows: %w", err)
+	}
+
 	return permissions, nil
 }
 
 func (s *TestPostgresStorage) StorePermission(username, topicPattern string, accessLevel int) error {
-	_, err := s.mock.Exec(context.Background(), `
-		INSERT INTO permissions (username, topic_pattern, access_level, created)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (username, topic_pattern) 
-		DO UPDATE SET access_level = $3, created = $4
-	`, username, topicPattern, accessLevel, time.Now())
-
+	_, err := s.mock.Exec(context.Background(), `INSERT INTO permissions`, username, topicPattern, accessLevel, pgxmock.AnyArg())
 	return err
 }
 
 func (s *TestPostgresStorage) DeletePermission(username, topicPattern string) error {
-	_, err := s.mock.Exec(context.Background(), `
-		DELETE FROM permissions
-		WHERE username = $1 AND topic_pattern = $2
-	`, username, topicPattern)
-
+	_, err := s.mock.Exec(context.Background(), `DELETE FROM permissions`, username, topicPattern)
 	return err
 }

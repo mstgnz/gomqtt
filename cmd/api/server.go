@@ -182,9 +182,9 @@ func (s *Server) handlePublish() http.HandlerFunc {
 
 // PermissionRequest represents a request to add a permission
 type PermissionRequest struct {
-	Username     string      `json:"username"`
-	TopicPattern string      `json:"topic_pattern"`
-	AccessLevel  interface{} `json:"access_level"` // Can be int or string
+	Username     string `json:"username"`
+	TopicPattern string `json:"topic_pattern"`
+	AccessLevel  any    `json:"access_level"` // Can be int or string
 }
 
 // PermissionResponse represents a permission for the API

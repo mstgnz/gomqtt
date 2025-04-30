@@ -259,7 +259,7 @@ func (s *PostgresStorage) GetMessages(query MessageQuery) (*MessagesPage, error)
 	`
 
 	var conditions []string
-	var params []interface{}
+	var params []any
 	paramIndex := 1
 
 	// Add filters
@@ -380,8 +380,8 @@ func (s *PostgresStorage) GetMessages(query MessageQuery) (*MessagesPage, error)
 func (s *PostgresStorage) CleanupExpiredMessages() (int, error) {
 	result, err := s.pool.Exec(context.Background(), `
 		DELETE FROM messages 
-		WHERE expires_at IS NOT NULL AND expires_at <= NOW()
-	`)
+		WHERE expires_at < $1
+	`, time.Now())
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup expired messages: %w", err)
 	}
@@ -411,20 +411,19 @@ func (s *PostgresStorage) StartMessageCleanup(interval time.Duration) {
 
 // GetClientInfo retrieves client information
 func (s *PostgresStorage) GetClientInfo(clientID string) (*ClientInfo, error) {
-	row := s.pool.QueryRow(context.Background(), `
+	var client ClientInfo
+	err := s.pool.QueryRow(context.Background(), `
 		SELECT client_id, username, last_seen, connected, connect_time
 		FROM clients
 		WHERE client_id = $1
-	`, clientID)
-
-	var client ClientInfo
-	err := row.Scan(
+	`, clientID).Scan(
 		&client.ClientID,
 		&client.Username,
 		&client.LastSeen,
 		&client.Connected,
 		&client.ConnectTime,
 	)
+
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -439,26 +438,23 @@ func (s *PostgresStorage) GetClientInfo(clientID string) (*ClientInfo, error) {
 func (s *PostgresStorage) UpdateClientConnection(clientID, username string, connected bool) error {
 	now := time.Now()
 
-	if connected {
-		_, err := s.pool.Exec(context.Background(), `
+	// First try to update the existing client
+	_, err := s.pool.Exec(context.Background(), `
+		UPDATE clients 
+		SET username = $1, connected = $2, last_seen = $3
+		WHERE client_id = $4
+	`, username, connected, now, clientID)
+
+	// If it's a new client and needs to be connected, insert it
+	if err == nil && connected {
+		_, err = s.pool.Exec(context.Background(), `
 			INSERT INTO clients (client_id, username, last_seen, connected, connect_time)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (client_id) 
-			DO UPDATE SET 
-				username = EXCLUDED.username,
-				last_seen = EXCLUDED.last_seen,
-				connected = EXCLUDED.connected,
-				connect_time = EXCLUDED.connect_time
+			ON CONFLICT (client_id) DO NOTHING
 		`, clientID, username, now, connected, now)
-		return err
-	} else {
-		_, err := s.pool.Exec(context.Background(), `
-			UPDATE clients 
-			SET last_seen = $1, connected = $2
-			WHERE client_id = $3
-		`, now, connected, clientID)
-		return err
 	}
+
+	return err
 }
 
 // GetAllPermissions retrieves all permissions from the database
@@ -466,10 +462,9 @@ func (s *PostgresStorage) GetAllPermissions() ([]Permission, error) {
 	rows, err := s.pool.Query(context.Background(), `
 		SELECT username, topic_pattern, access_level
 		FROM permissions
-		ORDER BY username, topic_pattern
 	`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query permissions: %w", err)
 	}
 	defer rows.Close()
 
@@ -485,9 +480,9 @@ func (s *PostgresStorage) GetAllPermissions() ([]Permission, error) {
 		// Convert access level integer to string
 		switch accessLevelInt {
 		case 0:
-			perm.AccessLevel = "read_only"
+			perm.AccessLevel = "read-only"
 		case 1:
-			perm.AccessLevel = "read_write"
+			perm.AccessLevel = "read-write"
 		case 2:
 			perm.AccessLevel = "admin"
 		default:
@@ -495,6 +490,10 @@ func (s *PostgresStorage) GetAllPermissions() ([]Permission, error) {
 		}
 
 		permissions = append(permissions, perm)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating permission rows: %w", err)
 	}
 
 	return permissions, nil

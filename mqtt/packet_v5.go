@@ -102,7 +102,7 @@ const (
 // PropertyValue represents a property with its value
 type PropertyValue struct {
 	PropertyID byte
-	Value      interface{}
+	Value      any
 }
 
 // PacketV5 represents an MQTT v5.0 control packet
@@ -177,7 +177,7 @@ func NewConnectPacketV5(clientID string, username string, password []byte, clean
 }
 
 // AddProperty adds a property to the packet
-func (p *PacketV5) AddProperty(propertyID byte, value interface{}) error {
+func (p *PacketV5) AddProperty(propertyID byte, value any) error {
 	p.Properties = append(p.Properties, PropertyValue{PropertyID: propertyID, Value: value})
 	return nil
 }
