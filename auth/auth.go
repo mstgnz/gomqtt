@@ -3,7 +3,10 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +21,7 @@ var (
 	ErrUserNotFound     = errors.New("user not found")
 	ErrClientNotFound   = errors.New("client not found")
 	ErrPermissionDenied = errors.New("permission denied")
+	ErrRoleNotFound     = errors.New("role not found")
 )
 
 // AccessLevel defines the permission level
@@ -36,12 +40,22 @@ type Permission struct {
 	AccessLevel  AccessLevel
 }
 
+// Role represents a role for RBAC (Role-Based Access Control)
+type Role struct {
+	Name        string
+	Description string
+	Permissions []Permission
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 // User represents a user with authentication credentials
 type User struct {
 	Username    string
 	Password    string // Hashed password in production
 	APIKeys     []APIKey
-	Permissions []Permission
+	Permissions []Permission // Direct permissions (in addition to role-based permissions)
+	Roles       []string     // List of role names assigned to user
 	IsAdmin     bool
 	CreatedAt   time.Time
 	LastLogin   time.Time
@@ -72,6 +86,7 @@ type Auth struct {
 	users          map[string]*User         // username -> User
 	apiKeys        map[string]*APIKey       // api key -> APIKey
 	clientDevices  map[string]*ClientDevice // clientID -> ClientDevice
+	roles          map[string]*Role         // role name -> Role
 	oauth2Provider *OAuth2Provider          // OAuth2 provider if enabled
 	mutex          sync.RWMutex
 }
@@ -83,6 +98,7 @@ func New(secretKey string) *Auth {
 		users:         make(map[string]*User),
 		apiKeys:       make(map[string]*APIKey),
 		clientDevices: make(map[string]*ClientDevice),
+		roles:         make(map[string]*Role),
 	}
 }
 
@@ -258,6 +274,40 @@ func (a *Auth) RegisterUser(username, password string, isAdmin bool) error {
 		IsAdmin:     isAdmin,
 		Permissions: []Permission{},
 		APIKeys:     []APIKey{},
+		Roles:       []string{},
+		CreatedAt:   time.Now(),
+	}
+
+	a.users[username] = user
+	return nil
+}
+
+// RegisterUserWithDefaultRole registers a new user and assigns the default role if provided
+func (a *Auth) RegisterUserWithDefaultRole(username, password string, isAdmin bool, defaultRole string) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	// Check if user already exists
+	if _, exists := a.users[username]; exists {
+		return errors.New("user already exists")
+	}
+
+	// Create roles array, add default role if specified and exists
+	roles := []string{}
+	if defaultRole != "" {
+		if _, exists := a.roles[defaultRole]; exists {
+			roles = append(roles, defaultRole)
+		}
+	}
+
+	// Create a new user
+	user := &User{
+		Username:    username,
+		Password:    password, // In production, this should be hashed
+		IsAdmin:     isAdmin,
+		Permissions: []Permission{},
+		APIKeys:     []APIKey{},
+		Roles:       roles,
 		CreatedAt:   time.Now(),
 	}
 
@@ -416,13 +466,30 @@ func (a *Auth) CheckTopicPermission(clientID, topic string, requireWrite bool) e
 		}
 	}
 
-	// Then check user permissions
+	// Then check user's direct permissions
 	for _, perm := range user.Permissions {
 		if topicMatches(perm.TopicPattern, topic) {
 			if requireWrite && perm.AccessLevel < ReadWrite {
 				continue // Need write permission
 			}
 			return nil // Permission granted
+		}
+	}
+
+	// Finally, check role-based permissions
+	for _, roleName := range user.Roles {
+		role, exists := a.roles[roleName]
+		if !exists {
+			continue
+		}
+
+		for _, perm := range role.Permissions {
+			if topicMatches(perm.TopicPattern, topic) {
+				if requireWrite && perm.AccessLevel < ReadWrite {
+					continue // Need write permission
+				}
+				return nil // Permission granted by role
+			}
 		}
 	}
 
@@ -498,14 +565,376 @@ func (a *Auth) RemoveUserPermission(username, topicPattern string) error {
 		return ErrUserNotFound
 	}
 
-	// Find and remove the permission
+	// Find and remove the matching permission
 	for i, perm := range user.Permissions {
 		if perm.TopicPattern == topicPattern {
-			// Remove this permission
+			// Remove permission at index i
 			user.Permissions = append(user.Permissions[:i], user.Permissions[i+1:]...)
 			return nil
 		}
 	}
 
 	return errors.New("permission not found")
+}
+
+// CreateRole creates a new role
+func (a *Auth) CreateRole(name, description string, permissions []Permission) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	// Check if role already exists
+	if _, exists := a.roles[name]; exists {
+		return errors.New("role already exists")
+	}
+
+	// Create the role
+	role := &Role{
+		Name:        name,
+		Description: description,
+		Permissions: permissions,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	a.roles[name] = role
+	return nil
+}
+
+// GetRole returns a role by name
+func (a *Auth) GetRole(name string) (*Role, error) {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	role, exists := a.roles[name]
+	if !exists {
+		return nil, ErrRoleNotFound
+	}
+
+	return role, nil
+}
+
+// UpdateRole updates an existing role
+func (a *Auth) UpdateRole(name, description string, permissions []Permission) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	role, exists := a.roles[name]
+	if !exists {
+		return ErrRoleNotFound
+	}
+
+	role.Description = description
+	role.Permissions = permissions
+	role.UpdatedAt = time.Now()
+	return nil
+}
+
+// DeleteRole deletes a role and removes it from all users
+func (a *Auth) DeleteRole(name string) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if _, exists := a.roles[name]; !exists {
+		return ErrRoleNotFound
+	}
+
+	// Remove this role from all users
+	for _, user := range a.users {
+		for i, roleName := range user.Roles {
+			if roleName == name {
+				user.Roles = append(user.Roles[:i], user.Roles[i+1:]...)
+				break
+			}
+		}
+	}
+
+	// Delete the role
+	delete(a.roles, name)
+	return nil
+}
+
+// AssignRoleToUser assigns a role to a user
+func (a *Auth) AssignRoleToUser(username, roleName string) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	// Check if user exists
+	user, exists := a.users[username]
+	if !exists {
+		return ErrUserNotFound
+	}
+
+	// Check if role exists
+	if _, exists := a.roles[roleName]; !exists {
+		return ErrRoleNotFound
+	}
+
+	// Check if user already has this role
+	for _, r := range user.Roles {
+		if r == roleName {
+			return nil // User already has this role
+		}
+	}
+
+	// Assign the role
+	user.Roles = append(user.Roles, roleName)
+	return nil
+}
+
+// RemoveRoleFromUser removes a role from a user
+func (a *Auth) RemoveRoleFromUser(username, roleName string) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	// Check if user exists
+	user, exists := a.users[username]
+	if !exists {
+		return ErrUserNotFound
+	}
+
+	// Find and remove the role
+	for i, r := range user.Roles {
+		if r == roleName {
+			user.Roles = append(user.Roles[:i], user.Roles[i+1:]...)
+			return nil
+		}
+	}
+
+	return errors.New("user does not have this role")
+}
+
+// ListRoles returns all roles
+func (a *Auth) ListRoles() []*Role {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	roles := make([]*Role, 0, len(a.roles))
+	for _, role := range a.roles {
+		roles = append(roles, role)
+	}
+	return roles
+}
+
+// GetUserRoles returns all roles assigned to a user
+func (a *Auth) GetUserRoles(username string) ([]*Role, error) {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	// Check if user exists
+	user, exists := a.users[username]
+	if !exists {
+		return nil, ErrUserNotFound
+	}
+
+	// Get the roles
+	roles := make([]*Role, 0, len(user.Roles))
+	for _, roleName := range user.Roles {
+		if role, exists := a.roles[roleName]; exists {
+			roles = append(roles, role)
+		}
+	}
+
+	return roles, nil
+}
+
+// RoleDefinition represents a role definition in the JSON file
+type RoleDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Permissions []struct {
+		TopicPattern string `json:"topic_pattern"`
+		AccessLevel  int    `json:"access_level"`
+	} `json:"permissions"`
+}
+
+// RolesFile represents the structure of the roles JSON file
+type RolesFile struct {
+	Roles []RoleDefinition `json:"roles"`
+}
+
+// LoadRolesFromFile loads roles from a JSON file
+func (a *Auth) LoadRolesFromFile(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read roles file: %w", err)
+	}
+
+	var rolesFile RolesFile
+	if err := json.Unmarshal(data, &rolesFile); err != nil {
+		return fmt.Errorf("failed to parse roles file: %w", err)
+	}
+
+	// Lock for writing
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	// Add each role
+	for _, roleDef := range rolesFile.Roles {
+		// Convert permissions
+		permissions := make([]Permission, len(roleDef.Permissions))
+		for i, perm := range roleDef.Permissions {
+			permissions[i] = Permission{
+				TopicPattern: perm.TopicPattern,
+				AccessLevel:  AccessLevel(perm.AccessLevel),
+			}
+		}
+
+		// Create or update the role
+		role, exists := a.roles[roleDef.Name]
+		if !exists {
+			// Create new role
+			a.roles[roleDef.Name] = &Role{
+				Name:        roleDef.Name,
+				Description: roleDef.Description,
+				Permissions: permissions,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
+			}
+		} else {
+			// Update existing role
+			role.Description = roleDef.Description
+			role.Permissions = permissions
+			role.UpdatedAt = time.Now()
+		}
+	}
+
+	return nil
+}
+
+// ResolveTopicPattern replaces variables in a topic pattern with actual values
+func (a *Auth) ResolveTopicPattern(pattern, username, clientID string) string {
+	result := strings.Replace(pattern, "{username}", username, -1)
+	result = strings.Replace(result, "{client_id}", clientID, -1)
+	return result
+}
+
+// CheckTopicPermissionWithPatternResolution checks permissions with variable resolution
+func (a *Auth) CheckTopicPermissionWithPatternResolution(clientID, topic string, requireWrite bool) error {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	client, exists := a.clientDevices[clientID]
+	if !exists {
+		return ErrClientNotFound
+	}
+
+	if client.IsBlocked {
+		return ErrPermissionDenied
+	}
+
+	// Get user permissions
+	user, exists := a.users[client.Username]
+	if !exists {
+		return ErrUserNotFound
+	}
+
+	// Admin has all permissions
+	if user.IsAdmin {
+		return nil
+	}
+
+	// Username for pattern resolution
+	username := client.Username
+
+	// Check client permissions first
+	for _, perm := range client.Permissions {
+		resolvedPattern := a.ResolveTopicPattern(perm.TopicPattern, username, clientID)
+		if topicMatches(resolvedPattern, topic) {
+			if requireWrite && perm.AccessLevel < ReadWrite {
+				continue // Need write permission
+			}
+			return nil // Permission granted
+		}
+	}
+
+	// Then check user's direct permissions
+	for _, perm := range user.Permissions {
+		resolvedPattern := a.ResolveTopicPattern(perm.TopicPattern, username, clientID)
+		if topicMatches(resolvedPattern, topic) {
+			if requireWrite && perm.AccessLevel < ReadWrite {
+				continue // Need write permission
+			}
+			return nil // Permission granted
+		}
+	}
+
+	// Finally, check role-based permissions
+	for _, roleName := range user.Roles {
+		role, exists := a.roles[roleName]
+		if !exists {
+			continue
+		}
+
+		for _, perm := range role.Permissions {
+			resolvedPattern := a.ResolveTopicPattern(perm.TopicPattern, username, clientID)
+			if topicMatches(resolvedPattern, topic) {
+				if requireWrite && perm.AccessLevel < ReadWrite {
+					continue // Need write permission
+				}
+				return nil // Permission granted by role
+			}
+		}
+	}
+
+	return ErrPermissionDenied
+}
+
+// GetAllUsers returns all users (for admin use only)
+func (a *Auth) GetAllUsers() map[string]*User {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	// Return a copy to ensure thread safety
+	usersCopy := make(map[string]*User)
+	for username, user := range a.users {
+		usersCopy[username] = user
+	}
+	return usersCopy
+}
+
+// DeleteUser deletes a user by username
+func (a *Auth) DeleteUser(username string) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if _, exists := a.users[username]; !exists {
+		return ErrUserNotFound
+	}
+
+	// Remove the user
+	delete(a.users, username)
+
+	// Also remove any client devices associated with this user
+	for clientID, client := range a.clientDevices {
+		if client.Username == username {
+			delete(a.clientDevices, clientID)
+		}
+	}
+
+	return nil
+}
+
+// IsRBACEnabled indicates if RBAC is enabled
+// This should be set by the application based on configuration
+var isRBACEnabled bool
+var defaultRole string
+
+// SetRBACEnabled sets the RBAC enabled flag
+func (a *Auth) SetRBACEnabled(enabled bool) {
+	isRBACEnabled = enabled
+}
+
+// IsRBACEnabled returns whether RBAC is enabled
+func (a *Auth) IsRBACEnabled() bool {
+	return isRBACEnabled
+}
+
+// SetDefaultRole sets the default role for new users
+func (a *Auth) SetDefaultRole(role string) {
+	defaultRole = role
+}
+
+// GetDefaultRole returns the default role for new users
+func (a *Auth) GetDefaultRole() string {
+	return defaultRole
 }

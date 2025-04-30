@@ -93,7 +93,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - [ ] Prometheus metrics
 - [x] Multi-node deployment with Docker Compose
 - [x] OAuth2 integration
-- [ ] RBAC (Role-Based Access Control)
+- [x] RBAC (Role-Based Access Control)
 
 ## 🔄 Clustering
 

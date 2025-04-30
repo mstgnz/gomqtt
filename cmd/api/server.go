@@ -14,6 +14,14 @@ import (
 	"github.com/mstgnz/gomqtt/storage"
 )
 
+// Define a custom type for context keys to avoid collisions
+type contextKey string
+
+// Define constants for different context keys
+const (
+	userContextKey contextKey = "user"
+)
+
 // Server represents the REST API server
 type Server struct {
 	Router     chi.Router
@@ -91,6 +99,28 @@ func (s *Server) setupRoutes() {
 				r.Delete("/{username}/{topic}", s.handleDeletePermission())
 			})
 
+			// User management endpoints
+			r.Route("/users", func(r chi.Router) {
+				r.Get("/", s.handleListUsers())
+				r.Post("/", s.handleCreateUser())
+				r.Get("/{username}", s.handleGetUser())
+				r.Delete("/{username}", s.handleDeleteUser())
+			})
+
+			// Role management endpoints (RBAC)
+			r.Route("/roles", func(r chi.Router) {
+				r.Get("/", s.handleListRoles())
+				r.Post("/", s.handleCreateRole())
+				r.Get("/{roleName}", s.handleGetRole())
+				r.Put("/{roleName}", s.handleUpdateRole())
+				r.Delete("/{roleName}", s.handleDeleteRole())
+
+				// User-role assignments
+				r.Post("/{roleName}/users/{username}", s.handleAssignRoleToUser())
+				r.Delete("/{roleName}/users/{username}", s.handleRemoveRoleFromUser())
+				r.Get("/users/{username}", s.handleGetUserRoles())
+			})
+
 			// Message history endpoints
 			r.Route("/history", func(r chi.Router) {
 				r.Get("/", s.handleGetMessageHistory())
@@ -124,7 +154,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Set claims in request context
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, "user", claims)
+		ctx = context.WithValue(ctx, userContextKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -561,5 +591,764 @@ func (s *Server) handleGetClientHistory() http.HandlerFunc {
 		// Format and return response
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
+	}
+}
+
+// UserRequest represents a user creation or update request
+type UserRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	IsAdmin  bool   `json:"is_admin"`
+}
+
+// UserResponse represents a user in API responses
+type UserResponse struct {
+	Username    string    `json:"username"`
+	IsAdmin     bool      `json:"is_admin"`
+	Permissions []string  `json:"permissions"`
+	Roles       []string  `json:"roles,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	LastLogin   time.Time `json:"last_login,omitempty"`
+}
+
+// RoleRequest represents a role creation or update request
+type RoleRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Permissions []struct {
+		TopicPattern string `json:"topic_pattern"`
+		AccessLevel  any    `json:"access_level"` // Can be int or string
+	} `json:"permissions"`
+}
+
+// RoleResponse represents a role in API responses
+type RoleResponse struct {
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Permissions []string  `json:"permissions"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// handleListUsers handles the endpoint to list all users
+func (s *Server) handleListUsers() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get users from authentication service
+		// In a real implementation, this would need pagination
+		users := []UserResponse{}
+
+		// Convert internal user objects to API response format
+		// This is a simplified example - in production you'd need proper pagination
+		// and would not expose all users to all clients
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+
+		// For security, only admin users can see all users
+		user, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if !user.IsAdmin {
+			// Regular users can only see themselves
+			userObj, err := s.Auth.GetUser(claims.Username)
+			if err != nil {
+				http.Error(w, "User not found", http.StatusNotFound)
+				return
+			}
+
+			// Create a response with permissions formatted as strings
+			permStrings := make([]string, len(userObj.Permissions))
+			for i, perm := range userObj.Permissions {
+				level := "read-only"
+				if perm.AccessLevel == auth.ReadWrite {
+					level = "read-write"
+				} else if perm.AccessLevel == auth.Admin {
+					level = "admin"
+				}
+				permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+			}
+
+			users = append(users, UserResponse{
+				Username:    userObj.Username,
+				IsAdmin:     userObj.IsAdmin,
+				Permissions: permStrings,
+				Roles:       userObj.Roles,
+				CreatedAt:   userObj.CreatedAt,
+				LastLogin:   userObj.LastLogin,
+			})
+		} else {
+			// Admin users can see all users
+			// In a real implementation, this would be paginated
+			for username, userObj := range s.Auth.GetAllUsers() {
+				permStrings := make([]string, len(userObj.Permissions))
+				for i, perm := range userObj.Permissions {
+					level := "read-only"
+					if perm.AccessLevel == auth.ReadWrite {
+						level = "read-write"
+					} else if perm.AccessLevel == auth.Admin {
+						level = "admin"
+					}
+					permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+				}
+
+				users = append(users, UserResponse{
+					Username:    username,
+					IsAdmin:     userObj.IsAdmin,
+					Permissions: permStrings,
+					Roles:       userObj.Roles,
+					CreatedAt:   userObj.CreatedAt,
+					LastLogin:   userObj.LastLogin,
+				})
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(users)
+	}
+}
+
+// handleCreateUser handles the endpoint to create a new user
+func (s *Server) handleCreateUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req UserRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Check required fields
+		if req.Username == "" || req.Password == "" {
+			http.Error(w, "Username and password are required", http.StatusBadRequest)
+			return
+		}
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		user, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admin users can create new users
+		if !user.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Create the user with default role if RBAC is enabled
+		var createErr error
+		if s.Auth.IsRBACEnabled() {
+			createErr = s.Auth.RegisterUserWithDefaultRole(req.Username, req.Password, req.IsAdmin, s.Auth.GetDefaultRole())
+		} else {
+			createErr = s.Auth.RegisterUser(req.Username, req.Password, req.IsAdmin)
+		}
+
+		if createErr != nil {
+			http.Error(w, createErr.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Return the created user
+		newUser, _ := s.Auth.GetUser(req.Username)
+
+		permStrings := make([]string, len(newUser.Permissions))
+		for i, perm := range newUser.Permissions {
+			level := "read-only"
+			if perm.AccessLevel == auth.ReadWrite {
+				level = "read-write"
+			} else if perm.AccessLevel == auth.Admin {
+				level = "admin"
+			}
+			permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+		}
+
+		response := UserResponse{
+			Username:    newUser.Username,
+			IsAdmin:     newUser.IsAdmin,
+			Permissions: permStrings,
+			Roles:       newUser.Roles,
+			CreatedAt:   newUser.CreatedAt,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// handleGetUser handles the endpoint to get a user by username
+func (s *Server) handleGetUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username := chi.URLParam(r, "username")
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can view other users' details
+		if username != claims.Username && !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required to view other users", http.StatusForbidden)
+			return
+		}
+
+		// Get the requested user
+		user, err := s.Auth.GetUser(username)
+		if err != nil {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+
+		// Format permissions as strings
+		permStrings := make([]string, len(user.Permissions))
+		for i, perm := range user.Permissions {
+			level := "read-only"
+			if perm.AccessLevel == auth.ReadWrite {
+				level = "read-write"
+			} else if perm.AccessLevel == auth.Admin {
+				level = "admin"
+			}
+			permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+		}
+
+		response := UserResponse{
+			Username:    user.Username,
+			IsAdmin:     user.IsAdmin,
+			Permissions: permStrings,
+			Roles:       user.Roles,
+			CreatedAt:   user.CreatedAt,
+			LastLogin:   user.LastLogin,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// handleDeleteUser handles the endpoint to delete a user
+func (s *Server) handleDeleteUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username := chi.URLParam(r, "username")
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can delete users, and users can't delete themselves
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Don't allow deleting your own account
+		if username == claims.Username {
+			http.Error(w, "Cannot delete your own account", http.StatusBadRequest)
+			return
+		}
+
+		// Delete the user
+		if err := s.Auth.DeleteUser(username); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleListRoles handles the endpoint to list all roles
+func (s *Server) handleListRoles() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can view roles
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Get all roles
+		roles := s.Auth.ListRoles()
+		response := make([]RoleResponse, 0, len(roles))
+
+		for _, role := range roles {
+			// Format permissions as strings
+			permStrings := make([]string, len(role.Permissions))
+			for i, perm := range role.Permissions {
+				level := "read-only"
+				if perm.AccessLevel == auth.ReadWrite {
+					level = "read-write"
+				} else if perm.AccessLevel == auth.Admin {
+					level = "admin"
+				}
+				permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+			}
+
+			response = append(response, RoleResponse{
+				Name:        role.Name,
+				Description: role.Description,
+				Permissions: permStrings,
+				CreatedAt:   role.CreatedAt,
+				UpdatedAt:   role.UpdatedAt,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// handleCreateRole handles the endpoint to create a new role
+func (s *Server) handleCreateRole() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		var req RoleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Check required fields
+		if req.Name == "" {
+			http.Error(w, "Role name is required", http.StatusBadRequest)
+			return
+		}
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can create roles
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Convert permissions
+		permissions := make([]auth.Permission, len(req.Permissions))
+		for i, perm := range req.Permissions {
+			var accessLevel auth.AccessLevel
+
+			// Handle different access level formats
+			switch v := perm.AccessLevel.(type) {
+			case float64:
+				accessLevel = auth.AccessLevel(int(v))
+			case int:
+				accessLevel = auth.AccessLevel(v)
+			case string:
+				switch v {
+				case "read-only":
+					accessLevel = auth.ReadOnly
+				case "read-write":
+					accessLevel = auth.ReadWrite
+				case "admin":
+					accessLevel = auth.Admin
+				default:
+					accessLevel = auth.ReadOnly
+				}
+			default:
+				accessLevel = auth.ReadOnly
+			}
+
+			permissions[i] = auth.Permission{
+				TopicPattern: perm.TopicPattern,
+				AccessLevel:  accessLevel,
+			}
+		}
+
+		// Create the role
+		if err := s.Auth.CreateRole(req.Name, req.Description, permissions); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Get the created role
+		role, _ := s.Auth.GetRole(req.Name)
+
+		// Format permissions as strings
+		permStrings := make([]string, len(role.Permissions))
+		for i, perm := range role.Permissions {
+			level := "read-only"
+			if perm.AccessLevel == auth.ReadWrite {
+				level = "read-write"
+			} else if perm.AccessLevel == auth.Admin {
+				level = "admin"
+			}
+			permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+		}
+
+		response := RoleResponse{
+			Name:        role.Name,
+			Description: role.Description,
+			Permissions: permStrings,
+			CreatedAt:   role.CreatedAt,
+			UpdatedAt:   role.UpdatedAt,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// handleGetRole handles the endpoint to get a role by name
+func (s *Server) handleGetRole() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		roleName := chi.URLParam(r, "roleName")
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can view roles
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Get the role
+		role, err := s.Auth.GetRole(roleName)
+		if err != nil {
+			http.Error(w, "Role not found", http.StatusNotFound)
+			return
+		}
+
+		// Format permissions as strings
+		permStrings := make([]string, len(role.Permissions))
+		for i, perm := range role.Permissions {
+			level := "read-only"
+			if perm.AccessLevel == auth.ReadWrite {
+				level = "read-write"
+			} else if perm.AccessLevel == auth.Admin {
+				level = "admin"
+			}
+			permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+		}
+
+		response := RoleResponse{
+			Name:        role.Name,
+			Description: role.Description,
+			Permissions: permStrings,
+			CreatedAt:   role.CreatedAt,
+			UpdatedAt:   role.UpdatedAt,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// handleUpdateRole handles the endpoint to update a role
+func (s *Server) handleUpdateRole() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		roleName := chi.URLParam(r, "roleName")
+
+		var req RoleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can update roles
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Convert permissions
+		permissions := make([]auth.Permission, len(req.Permissions))
+		for i, perm := range req.Permissions {
+			var accessLevel auth.AccessLevel
+
+			// Handle different access level formats
+			switch v := perm.AccessLevel.(type) {
+			case float64:
+				accessLevel = auth.AccessLevel(int(v))
+			case int:
+				accessLevel = auth.AccessLevel(v)
+			case string:
+				switch v {
+				case "read-only":
+					accessLevel = auth.ReadOnly
+				case "read-write":
+					accessLevel = auth.ReadWrite
+				case "admin":
+					accessLevel = auth.Admin
+				default:
+					accessLevel = auth.ReadOnly
+				}
+			default:
+				accessLevel = auth.ReadOnly
+			}
+
+			permissions[i] = auth.Permission{
+				TopicPattern: perm.TopicPattern,
+				AccessLevel:  accessLevel,
+			}
+		}
+
+		// Update the role
+		if err := s.Auth.UpdateRole(roleName, req.Description, permissions); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Get the updated role
+		role, _ := s.Auth.GetRole(roleName)
+
+		// Format permissions as strings
+		permStrings := make([]string, len(role.Permissions))
+		for i, perm := range role.Permissions {
+			level := "read-only"
+			if perm.AccessLevel == auth.ReadWrite {
+				level = "read-write"
+			} else if perm.AccessLevel == auth.Admin {
+				level = "admin"
+			}
+			permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+		}
+
+		response := RoleResponse{
+			Name:        role.Name,
+			Description: role.Description,
+			Permissions: permStrings,
+			CreatedAt:   role.CreatedAt,
+			UpdatedAt:   role.UpdatedAt,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// handleDeleteRole handles the endpoint to delete a role
+func (s *Server) handleDeleteRole() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		roleName := chi.URLParam(r, "roleName")
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can delete roles
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Don't allow deleting the default role
+		if roleName == s.Auth.GetDefaultRole() {
+			http.Error(w, "Cannot delete the default role", http.StatusBadRequest)
+			return
+		}
+
+		// Delete the role
+		if err := s.Auth.DeleteRole(roleName); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleAssignRoleToUser handles the endpoint to assign a role to a user
+func (s *Server) handleAssignRoleToUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		roleName := chi.URLParam(r, "roleName")
+		username := chi.URLParam(r, "username")
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can assign roles
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Assign the role to the user
+		if err := s.Auth.AssignRoleToUser(username, roleName); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleRemoveRoleFromUser handles the endpoint to remove a role from a user
+func (s *Server) handleRemoveRoleFromUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		roleName := chi.URLParam(r, "roleName")
+		username := chi.URLParam(r, "username")
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Only admins can remove roles
+		if !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required", http.StatusForbidden)
+			return
+		}
+
+		// Remove the role from the user
+		if err := s.Auth.RemoveRoleFromUser(username, roleName); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleGetUserRoles handles the endpoint to get roles assigned to a user
+func (s *Server) handleGetUserRoles() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.Auth.IsRBACEnabled() {
+			http.Error(w, "RBAC is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		username := chi.URLParam(r, "username")
+
+		// Get current user from context to check permissions
+		ctx := r.Context()
+		claims := ctx.Value(userContextKey).(*auth.Claims)
+		currentUser, err := s.Auth.GetUser(claims.Username)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Users can view their own roles, admins can view any user's roles
+		if username != claims.Username && !currentUser.IsAdmin {
+			http.Error(w, "Admin privileges required to view other users' roles", http.StatusForbidden)
+			return
+		}
+
+		// Get the roles
+		roles, err := s.Auth.GetUserRoles(username)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		// Format response
+		response := make([]RoleResponse, 0, len(roles))
+		for _, role := range roles {
+			// Format permissions as strings
+			permStrings := make([]string, len(role.Permissions))
+			for i, perm := range role.Permissions {
+				level := "read-only"
+				if perm.AccessLevel == auth.ReadWrite {
+					level = "read-write"
+				} else if perm.AccessLevel == auth.Admin {
+					level = "admin"
+				}
+				permStrings[i] = fmt.Sprintf("%s (%s)", perm.TopicPattern, level)
+			}
+
+			response = append(response, RoleResponse{
+				Name:        role.Name,
+				Description: role.Description,
+				Permissions: permStrings,
+				CreatedAt:   role.CreatedAt,
+				UpdatedAt:   role.UpdatedAt,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
 	}
 }

@@ -77,6 +77,13 @@ type Config struct {
 			TokenField    string   `json:"token_field"`    // Field from MQTT CONNECT containing token
 			UsernameField string   `json:"username_field"` // JSON field in user info containing username
 		} `json:"oauth2"`
+
+		// RBAC configuration
+		RBAC struct {
+			Enabled             bool   `json:"enabled"`
+			DefaultRole         string `json:"default_role"`          // Default role for new users
+			PredefinedRolesFile string `json:"predefined_roles_file"` // JSON file containing predefined roles
+		} `json:"rbac"`
 	} `json:"auth"`
 
 	Database struct {
@@ -182,6 +189,11 @@ func DefaultConfig() *Config {
 	cfg.Auth.OAuth2.Enabled = false
 	cfg.Auth.OAuth2.TokenField = "password" // By default, use password field for token
 	cfg.Auth.OAuth2.UsernameField = "email" // Default username field in user info
+
+	// RBAC defaults
+	cfg.Auth.RBAC.Enabled = false
+	cfg.Auth.RBAC.DefaultRole = "user"
+	cfg.Auth.RBAC.PredefinedRolesFile = "config/roles.json"
 
 	// Database defaults
 	cfg.Database.Host = "localhost"

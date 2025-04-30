@@ -1,0 +1,82 @@
+{
+  "roles": [
+    {
+      "name": "user",
+      "description": "Default role for normal users",
+      "permissions": [
+        {
+          "topic_pattern": "user/{username}/#",
+          "access_level": 1
+        },
+        {
+          "topic_pattern": "public/#",
+          "access_level": 0
+        }
+      ]
+    },
+    {
+      "name": "operator",
+      "description": "Operators can manage devices and view system metrics",
+      "permissions": [
+        {
+          "topic_pattern": "devices/#",
+          "access_level": 1
+        },
+        {
+          "topic_pattern": "metrics/#",
+          "access_level": 0
+        },
+        {
+          "topic_pattern": "user/{username}/#",
+          "access_level": 1
+        },
+        {
+          "topic_pattern": "public/#",
+          "access_level": 1
+        }
+      ]
+    },
+    {
+      "name": "admin",
+      "description": "Administrators have full access to all topics",
+      "permissions": [
+        {
+          "topic_pattern": "#",
+          "access_level": 1
+        }
+      ]
+    },
+    {
+      "name": "device",
+      "description": "Limited role for IoT devices",
+      "permissions": [
+        {
+          "topic_pattern": "devices/{client_id}/data",
+          "access_level": 1
+        },
+        {
+          "topic_pattern": "devices/{client_id}/status",
+          "access_level": 1
+        },
+        {
+          "topic_pattern": "devices/commands/{client_id}",
+          "access_level": 0
+        },
+        {
+          "topic_pattern": "system/time",
+          "access_level": 0
+        }
+      ]
+    },
+    {
+      "name": "monitor",
+      "description": "Read-only role for monitoring purposes",
+      "permissions": [
+        {
+          "topic_pattern": "#",
+          "access_level": 0
+        }
+      ]
+    }
+  ]
+} 

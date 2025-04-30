@@ -59,6 +59,42 @@ func main() {
 		log.Printf("OAuth2 authentication initialized")
 	}
 
+	// Setup RBAC if enabled
+	if cfg.Auth.RBAC.Enabled {
+		log.Printf("Setting up Role-Based Access Control (RBAC)...")
+		authService.SetRBACEnabled(true)
+		authService.SetDefaultRole(cfg.Auth.RBAC.DefaultRole)
+
+		if err := authService.LoadRolesFromFile(cfg.Auth.RBAC.PredefinedRolesFile); err != nil {
+			log.Printf("Warning: Failed to load roles from file: %v", err)
+			log.Println("RBAC will be enabled but without predefined roles")
+		} else {
+			log.Printf("RBAC initialized with predefined roles from %s", cfg.Auth.RBAC.PredefinedRolesFile)
+
+			// Create default roles if not found in the file
+			if _, err := authService.GetRole(cfg.Auth.RBAC.DefaultRole); err != nil {
+				// Default role not found, create it
+				log.Printf("Creating default role '%s'", cfg.Auth.RBAC.DefaultRole)
+				defaultPermissions := []auth.Permission{
+					{
+						TopicPattern: "user/{username}/#",
+						AccessLevel:  auth.ReadWrite,
+					},
+					{
+						TopicPattern: "public/#",
+						AccessLevel:  auth.ReadOnly,
+					},
+				}
+				if err := authService.CreateRole(cfg.Auth.RBAC.DefaultRole, "Default user role", defaultPermissions); err != nil {
+					log.Printf("Warning: Failed to create default role: %v", err)
+				}
+			}
+		}
+	} else {
+		// RBAC is disabled
+		authService.SetRBACEnabled(false)
+	}
+
 	// Setup storage
 	var store storage.Storage
 	var storageErr error
