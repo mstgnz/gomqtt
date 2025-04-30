@@ -83,7 +83,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 ## 📋 Planned Features
 
 - [x] Full MQTT v5.0 support
-- [ ] Clustering support
+- [x] Clustering support
 - [x] Shared subscriptions
 - [ ] Bridge mode
 - [ ] Packet filtering
@@ -94,6 +94,48 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 - [ ] Multi-node deployment with Docker Compose
 - [ ] OAuth2 integration
 - [ ] RBAC (Role-Based Access Control)
+
+## 🔄 Clustering
+
+GoMQTT supports clustering to provide high availability and scalability. Multiple GoMQTT brokers can be connected together to form a cluster. The following features are supported in cluster mode:
+
+- **Automatic node discovery**: Nodes automatically discover and connect to each other
+- **State synchronization**: Subscriptions and retained messages are synchronized across the cluster
+- **Message sharing**: Messages published to one node are distributed to subscribers on other nodes
+- **Shared subscriptions**: Multiple subscribers can share a subscription across different nodes
+- **High availability**: If one node fails, clients can connect to another node in the cluster
+
+### Cluster Configuration
+
+To enable clustering, update your configuration file:
+
+```json
+{
+  "cluster": {
+    "enabled": true,
+    "node_id": "node1", // Unique identifier for this node
+    "node_host": "localhost", // Host address for cluster communication
+    "node_port": 7946, // Port for cluster communication (Memberlist default)
+    "gossip_port": 7947, // Port for gossip protocol
+    "seed_nodes": [
+      // List of existing nodes to join
+      "node2:7946",
+      "node3:7946"
+    ],
+    "sync_interval": 30 // Synchronization interval in seconds
+  }
+}
+```
+
+### Running a Cluster
+
+A cluster can be started using the provided `docker-compose-cluster.yml` file:
+
+```bash
+docker-compose -f docker-compose-cluster.yml up
+```
+
+This will start a cluster with three nodes, all connected to the same PostgreSQL database for message persistence.
 
 ## 🏗️ Connection Options
 

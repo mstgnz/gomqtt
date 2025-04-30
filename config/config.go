@@ -83,6 +83,17 @@ type Config struct {
 		Format string `json:"format"`
 		File   string `json:"file"`
 	} `json:"logging"`
+
+	// Clustering configuration
+	Cluster struct {
+		Enabled      bool     `json:"enabled"`
+		NodeID       string   `json:"node_id"`
+		NodeHost     string   `json:"node_host"`
+		NodePort     int      `json:"node_port"`
+		SeedNodes    []string `json:"seed_nodes"`
+		GossipPort   int      `json:"gossip_port"`
+		SyncInterval int      `json:"sync_interval"` // in seconds
+	} `json:"cluster"`
 }
 
 // DefaultConfig creates a default configuration
@@ -137,9 +148,9 @@ func DefaultConfig() *Config {
 
 	// Storage defaults
 	cfg.Storage.Enabled = true
-	cfg.Storage.MessageRetention = 24 // 24 hours
-	cfg.Storage.CleanupInterval = 1   // 1 hour
-	cfg.Storage.BatchSize = 100       // 100 messages per batch
+	cfg.Storage.MessageRetention = 24 // Store messages for 24 hours
+	cfg.Storage.CleanupInterval = 6   // Run cleanup every 6 hours
+	cfg.Storage.BatchSize = 100       // Process up to 100 messages at a time
 
 	// Plugin defaults
 	cfg.Plugins.Enabled = true
@@ -150,6 +161,15 @@ func DefaultConfig() *Config {
 	cfg.Logging.Level = "info"
 	cfg.Logging.Format = "text"
 	cfg.Logging.File = ""
+
+	// Cluster defaults
+	cfg.Cluster.Enabled = false
+	cfg.Cluster.NodeID = "" // Will be auto-generated if empty
+	cfg.Cluster.NodeHost = "127.0.0.1"
+	cfg.Cluster.NodePort = 7946   // Default memberlist port
+	cfg.Cluster.GossipPort = 7947 // Gossip protocol port
+	cfg.Cluster.SeedNodes = []string{}
+	cfg.Cluster.SyncInterval = 30 // 30 seconds
 
 	return cfg
 }

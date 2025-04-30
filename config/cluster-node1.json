@@ -36,12 +36,12 @@
     "file": ""
   },
   "cluster": {
-    "enabled": false,
-    "node_id": "",
-    "node_host": "127.0.0.1",
+    "enabled": true,
+    "node_id": "node1",
+    "node_host": "gomqtt-node1",
     "node_port": 7946,
     "gossip_port": 7947,
     "seed_nodes": [],
-    "sync_interval": 30
+    "sync_interval": 10
   }
 } 

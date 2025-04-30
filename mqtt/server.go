@@ -90,6 +90,10 @@ type Server struct {
 	storageService      any // Uses any to avoid circular import
 	storageServiceMutex sync.RWMutex
 
+	// Cluster service
+	clusterService      any // Uses any to avoid circular import
+	clusterServiceMutex sync.RWMutex
+
 	// Message retention configuration
 	messageRetention time.Duration // How long to keep messages in storage (0 = forever)
 
@@ -815,6 +819,16 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 			log.Printf("Error sending PUBACK: %v\n", err)
 		}
 	}
+
+	// Broadcast retained message to cluster if enabled
+	if packet.Retain && s.clusterService != nil {
+		// Use reflection to call BroadcastRetainedMessage without direct import
+		if broadcaster, ok := s.clusterService.(interface {
+			BroadcastRetainedMessage(topic string, payload []byte, qos byte)
+		}); ok {
+			broadcaster.BroadcastRetainedMessage(packet.TopicName, packet.Payload, packet.Qos)
+		}
+	}
 }
 
 // persistMessage stores a message in the database if storage is available
@@ -1050,6 +1064,25 @@ func (s *Server) handleSubscribe(conn net.Conn, packet *Packet) {
 
 	// Send retained messages that match the new subscriptions
 	s.sendRetainedMessages(client, newSubscriptions)
+
+	// Broadcast subscription to cluster if enabled
+	if s.clusterService != nil {
+		// Use reflection to call BroadcastSubscription without direct import
+		if broadcaster, ok := s.clusterService.(interface {
+			BroadcastSubscription(clientID, topic string, qos byte)
+		}); ok {
+			for i, topic := range packet.Topics {
+				var qos byte = 0
+				if i < len(packet.QoSs) {
+					qos = packet.QoSs[i]
+				}
+				// Only broadcast successful subscriptions (not failed ones with QoS 0x80)
+				if i < len(grantedQoS) && grantedQoS[i] != 0x80 {
+					broadcaster.BroadcastSubscription(client.ID, topic, qos)
+				}
+			}
+		}
+	}
 }
 
 // sendRetainedMessages sends retained messages to a client for its subscriptions
@@ -1161,6 +1194,18 @@ func (s *Server) handleUnsubscribe(conn net.Conn, packet *Packet) {
 	_, err = conn.Write(unsubackBytes)
 	if err != nil {
 		log.Printf("Error sending UNSUBACK: %v\n", err)
+	}
+
+	// Broadcast unsubscription to cluster if enabled
+	if s.clusterService != nil {
+		// Use reflection to call BroadcastUnsubscription without direct import
+		if broadcaster, ok := s.clusterService.(interface {
+			BroadcastUnsubscription(clientID, topic string)
+		}); ok {
+			for _, topic := range packet.Topics {
+				broadcaster.BroadcastUnsubscription(client.ID, topic)
+			}
+		}
 	}
 }
 
@@ -1560,24 +1605,44 @@ func (s *Server) retryInflightMessages() {
 	}
 }
 
-// storeRetainedMessage stores or deletes a retained message
+// storeRetainedMessage stores a retained message
 func (s *Server) storeRetainedMessage(topic string, payload []byte, qos byte) {
-	s.retainedMessagesMutex.Lock()
-	defer s.retainedMessagesMutex.Unlock()
-
+	// Special case: empty payload means delete the retained message
 	if len(payload) == 0 {
-		// Empty payload means delete the retained message
+		s.retainedMessagesMutex.Lock()
 		delete(s.retainedMessages, topic)
+		s.retainedMessagesMutex.Unlock()
 		log.Printf("Deleted retained message for topic: %s", topic)
-	} else {
-		// Store the retained message
-		s.retainedMessages[topic] = RetainedMessage{
-			Topic:    topic,
-			Payload:  payload,
-			QoS:      qos,
-			Modified: time.Now(),
+		return
+	}
+
+	// Store the retained message
+	s.retainedMessagesMutex.Lock()
+	s.retainedMessages[topic] = RetainedMessage{
+		Topic:    topic,
+		Payload:  payload,
+		QoS:      qos,
+		Modified: time.Now(),
+	}
+	s.retainedMessagesMutex.Unlock()
+	log.Printf("Stored retained message for topic: %s", topic)
+}
+
+// StoreRetainedMessage stores a retained message (public version)
+func (s *Server) StoreRetainedMessage(topic string, payload []byte, qos byte) {
+	s.storeRetainedMessage(topic, payload, qos)
+}
+
+// GetRetainedMessages iterates through all retained messages and calls the callback function for each one
+// The callback should return true to continue iteration or false to stop
+func (s *Server) GetRetainedMessages(callback func(topic string, payload []byte, qos byte) bool) {
+	s.retainedMessagesMutex.RLock()
+	defer s.retainedMessagesMutex.RUnlock()
+
+	for topic, msg := range s.retainedMessages {
+		if !callback(topic, msg.Payload, msg.QoS) {
+			break
 		}
-		log.Printf("Stored retained message for topic: %s", topic)
 	}
 }
 
@@ -1676,4 +1741,13 @@ func (s *Server) SetStorageService(storage any) {
 func (s *Server) SetMessageRetention(retention time.Duration) {
 	s.messageRetention = retention
 	log.Printf("Message retention set to %s", retention)
+}
+
+// SetClusterService sets the cluster service for this server
+func (s *Server) SetClusterService(clusterService any) {
+	s.clusterServiceMutex.Lock()
+	defer s.clusterServiceMutex.Unlock()
+
+	s.clusterService = clusterService
+	log.Printf("Cluster service set for MQTT server")
 }

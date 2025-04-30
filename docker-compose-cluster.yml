@@ -1,0 +1,94 @@
+version: "3"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: gomqtt-postgres
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: gomqtt
+    ports:
+      - "5432:5432"
+    networks:
+      - gomqtt-network
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  gomqtt-node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gomqtt-node1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "1883:1883" # MQTT
+      - "8883:8883" # MQTTS
+      - "9001:9001" # WebSocket
+      - "8080:8080" # API
+      - "8081:8081" # Admin panel
+      - "7946:7946" # Cluster port
+    networks:
+      - gomqtt-network
+    volumes:
+      - ./config/cluster-node1.json:/app/config/default.json
+    environment:
+      - NODE_ID=node1
+
+  gomqtt-node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gomqtt-node2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "1884:1883" # MQTT (mapped to different host port)
+      - "8884:8883" # MQTTS (mapped to different host port)
+      - "9002:9001" # WebSocket (mapped to different host port)
+      - "8082:8080" # API (mapped to different host port)
+      - "8083:8081" # Admin panel (mapped to different host port)
+      - "7947:7946" # Cluster port (mapped to different host port)
+    networks:
+      - gomqtt-network
+    volumes:
+      - ./config/cluster-node2.json:/app/config/default.json
+    environment:
+      - NODE_ID=node2
+
+  gomqtt-node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gomqtt-node3
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "1885:1883" # MQTT (mapped to different host port)
+      - "8885:8883" # MQTTS (mapped to different host port)
+      - "9003:9001" # WebSocket (mapped to different host port)
+      - "8084:8080" # API (mapped to different host port)
+      - "8085:8081" # Admin panel (mapped to different host port)
+      - "7948:7946" # Cluster port (mapped to different host port)
+    networks:
+      - gomqtt-network
+    volumes:
+      - ./config/cluster-node3.json:/app/config/default.json
+    environment:
+      - NODE_ID=node3
+
+networks:
+  gomqtt-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

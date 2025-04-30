@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mstgnz/gomqtt/auth"
+	"github.com/mstgnz/gomqtt/cluster"
 	"github.com/mstgnz/gomqtt/cmd/admin"
 	"github.com/mstgnz/gomqtt/cmd/api"
 	"github.com/mstgnz/gomqtt/config"
@@ -87,6 +88,51 @@ func main() {
 
 	// Set auth service for permission checking
 	mqttServer.SetAuthService(authService)
+
+	// Setup cluster if enabled
+	var clusterService *cluster.Cluster
+	if cfg.Cluster.Enabled {
+		log.Printf("Initializing cluster mode...")
+		syncInterval := time.Duration(cfg.Cluster.SyncInterval) * time.Second
+
+		clusterService = cluster.NewCluster(
+			cfg.Cluster.NodeID,
+			cfg.Cluster.NodeHost,
+			cfg.Cluster.NodePort,
+			cfg.Cluster.GossipPort,
+			cfg.Cluster.SeedNodes,
+			syncInterval,
+		)
+
+		// Register cluster callbacks to handle events from other nodes
+		clusterService.RegisterCallbacks(
+			// onSubscribe
+			func(clientID, topic string, qos byte) {
+				log.Printf("Cluster: Remote client %s subscribed to %s (QoS %d)", clientID, topic, qos)
+			},
+			// onUnsubscribe
+			func(clientID, topic string) {
+				log.Printf("Cluster: Remote client %s unsubscribed from %s", clientID, topic)
+			},
+			// onPublish
+			func(topic string, payload []byte, qos byte, retained bool) {
+				log.Printf("Cluster: Received retained message on topic %s (QoS %d)", topic, qos)
+				mqttServer.StoreRetainedMessage(topic, payload, qos)
+			},
+		)
+
+		// Start the cluster
+		if err := clusterService.Start(); err != nil {
+			log.Printf("Warning: Failed to start cluster: %v", err)
+			log.Println("Continuing in standalone mode")
+		} else {
+			mqttServer.SetClusterService(clusterService)
+			log.Printf("Cluster started. This node ID: %s", clusterService.NodeID)
+
+			// Defer cluster shutdown
+			defer clusterService.Stop()
+		}
+	}
 
 	// Enable TLS/MQTTS if configured
 	if cfg.MQTT.TLS.Enabled {
