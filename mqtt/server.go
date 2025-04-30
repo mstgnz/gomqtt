@@ -2,13 +2,19 @@ package mqtt
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // Server represents the MQTT broker server
@@ -17,8 +23,18 @@ type Server struct {
 	Host string
 	Port int
 
+	// WebSocket configuration
+	WSEnabled bool
+	WSHost    string
+	WSPort    int
+	WSPath    string
+
 	// TCP listener
 	listener net.Listener
+
+	// WebSocket listener
+	wsServer   *http.Server
+	wsUpgrader *websocket.Upgrader
 
 	// Client management
 	clients      map[string]*Client
@@ -89,33 +105,68 @@ func NewServer(host string, port int) *Server {
 	return &Server{
 		Host:                host,
 		Port:                port,
+		WSEnabled:           false,   // WebSocket disabled by default
+		WSHost:              host,    // Default to same host as TCP
+		WSPort:              9001,    // Default WebSocket port for MQTT
+		WSPath:              "/mqtt", // Default WebSocket path
 		clients:             make(map[string]*Client),
 		subscriptions:       make(map[string][]*Subscription),
 		retainedMessages:    make(map[string]RetainedMessage),
 		inflightMessages:    make(map[string]map[uint16]*InflightMessage),
 		pendingQoS2Messages: make(map[uint16]*PendingQoS2Message),
 		messageRetention:    24 * time.Hour, // Default: store messages for 24 hours
+		wsUpgrader: &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins by default
+			},
+		},
 	}
 }
 
-// Start starts the MQTT server
+// EnableWebSocket enables WebSocket support for the MQTT server
+func (s *Server) EnableWebSocket(host string, port int, path string) {
+	s.WSEnabled = true
+
+	if host != "" {
+		s.WSHost = host
+	}
+
+	if port > 0 {
+		s.WSPort = port
+	}
+
+	if path != "" {
+		s.WSPath = path
+	}
+
+	log.Printf("WebSocket transport enabled on %s:%d%s", s.WSHost, s.WSPort, s.WSPath)
+}
+
+// Start starts the MQTT server (both TCP and WebSocket if enabled)
 func (s *Server) Start() error {
+	// Start TCP server
 	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("failed to start MQTT server: %w", err)
+		return fmt.Errorf("failed to start MQTT TCP server: %w", err)
 	}
 	s.listener = listener
 
-	// Start the message retry mechanism
+	// Start message retry mechanism
 	s.startMessageRetry()
 
-	log.Printf("MQTT server started on %s\n", addr)
+	log.Printf("MQTT server (TCP) started on %s\n", addr)
 
+	// Start WebSocket server if enabled
+	if s.WSEnabled {
+		go s.startWebSocketServer()
+	}
+
+	// Accept TCP connections
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Error accepting connection: %v\n", err)
+			log.Printf("Error accepting TCP connection: %v\n", err)
 			continue
 		}
 
@@ -123,12 +174,181 @@ func (s *Server) Start() error {
 	}
 }
 
-// Stop stops the MQTT server
-func (s *Server) Stop() error {
-	if s.listener != nil {
-		return s.listener.Close()
+// startWebSocketServer starts the WebSocket server
+func (s *Server) startWebSocketServer() {
+	// Define WebSocket handler
+	handler := http.NewServeMux()
+	handler.HandleFunc(s.WSPath, s.handleWebSocket)
+
+	// Create HTTP server
+	wsAddr := fmt.Sprintf("%s:%d", s.WSHost, s.WSPort)
+	s.wsServer = &http.Server{
+		Addr:    wsAddr,
+		Handler: handler,
 	}
-	return nil
+
+	log.Printf("MQTT server (WebSocket) started on %s%s\n", wsAddr, s.WSPath)
+
+	// Start HTTP server for WebSocket
+	if err := s.wsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("Error starting WebSocket server: %v\n", err)
+	}
+}
+
+// handleWebSocket handles WebSocket connection upgrade and wraps it as a net.Conn
+func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Upgrade connection to WebSocket
+	wsConn, err := s.wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v\n", err)
+		return
+	}
+
+	// Create adapter to convert WebSocket to net.Conn
+	conn := &WebSocketConn{
+		conn: wsConn,
+	}
+
+	// Handle connection like a normal TCP connection
+	s.handleConnection(conn)
+}
+
+// Stop stops the MQTT server (both TCP and WebSocket)
+func (s *Server) Stop() error {
+	var err error
+
+	// Stop TCP listener
+	if s.listener != nil {
+		err = s.listener.Close()
+	}
+
+	// Stop WebSocket server
+	if s.WSEnabled && s.wsServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if shutdownErr := s.wsServer.Shutdown(ctx); shutdownErr != nil {
+			log.Printf("Error shutting down WebSocket server: %v", shutdownErr)
+			if err == nil {
+				err = shutdownErr
+			}
+		}
+	}
+
+	return err
+}
+
+// WebSocketConn adapts a websocket.Conn to a net.Conn interface
+type WebSocketConn struct {
+	conn       *websocket.Conn
+	readBuf    bytes.Buffer
+	nextReader io.Reader
+	readMu     sync.Mutex
+	writeMu    sync.Mutex
+	closed     bool
+}
+
+// Read reads data from the WebSocket connection
+func (w *WebSocketConn) Read(b []byte) (int, error) {
+	w.readMu.Lock()
+	defer w.readMu.Unlock()
+
+	if w.closed {
+		return 0, io.EOF
+	}
+
+	// If we have data in the buffer, read from it
+	if w.readBuf.Len() > 0 {
+		return w.readBuf.Read(b)
+	}
+
+	// If we have a reader from a previous message, use it
+	if w.nextReader != nil {
+		n, err := w.nextReader.Read(b)
+		if err == io.EOF {
+			w.nextReader = nil
+			if n > 0 {
+				return n, nil
+			}
+		} else if err != nil {
+			return n, err
+		} else {
+			return n, nil
+		}
+	}
+
+	// Get the next message
+	messageType, reader, err := w.conn.NextReader()
+	if err != nil {
+		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			return 0, io.EOF
+		}
+		return 0, err
+	}
+
+	// Only accept binary messages for MQTT
+	if messageType != websocket.BinaryMessage {
+		log.Printf("Received non-binary WebSocket message, ignoring")
+		return 0, nil
+	}
+
+	// Store reader for subsequent reads
+	w.nextReader = reader
+
+	// Recursively call Read to use the reader we just got
+	return w.Read(b)
+}
+
+// Write writes data to the WebSocket connection
+func (w *WebSocketConn) Write(b []byte) (int, error) {
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
+
+	if w.closed {
+		return 0, io.ErrClosedPipe
+	}
+
+	// Send as binary message
+	err := w.conn.WriteMessage(websocket.BinaryMessage, b)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(b), nil
+}
+
+// Close closes the WebSocket connection
+func (w *WebSocketConn) Close() error {
+	w.closed = true
+	return w.conn.Close()
+}
+
+// LocalAddr returns the local network address
+func (w *WebSocketConn) LocalAddr() net.Addr {
+	return w.conn.LocalAddr()
+}
+
+// RemoteAddr returns the remote network address
+func (w *WebSocketConn) RemoteAddr() net.Addr {
+	return w.conn.RemoteAddr()
+}
+
+// SetDeadline sets the read and write deadlines
+func (w *WebSocketConn) SetDeadline(t time.Time) error {
+	if err := w.SetReadDeadline(t); err != nil {
+		return err
+	}
+	return w.SetWriteDeadline(t)
+}
+
+// SetReadDeadline sets the read deadline
+func (w *WebSocketConn) SetReadDeadline(t time.Time) error {
+	return w.conn.SetReadDeadline(t)
+}
+
+// SetWriteDeadline sets the write deadline
+func (w *WebSocketConn) SetWriteDeadline(t time.Time) error {
+	return w.conn.SetWriteDeadline(t)
 }
 
 // handleConnection processes a new client connection

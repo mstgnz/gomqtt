@@ -87,6 +87,19 @@ func main() {
 	// Set auth service for permission checking
 	mqttServer.SetAuthService(authService)
 
+	// Enable WebSocket support if configured
+	if cfg.MQTT.WebSocket.Enabled {
+		mqttServer.EnableWebSocket(
+			cfg.MQTT.WebSocket.Host,
+			cfg.MQTT.WebSocket.Port,
+			cfg.MQTT.WebSocket.Path,
+		)
+		log.Printf("WebSocket transport enabled on %s:%d%s",
+			cfg.MQTT.WebSocket.Host,
+			cfg.MQTT.WebSocket.Port,
+			cfg.MQTT.WebSocket.Path)
+	}
+
 	// Set storage service for message persistence if available
 	if store != nil && cfg.Storage.Enabled {
 		mqttServer.SetStorageService(store)

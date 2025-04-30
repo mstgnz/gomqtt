@@ -17,6 +17,14 @@ type Config struct {
 		AllowAnonymous  bool   `json:"allow_anonymous"`
 		MaxQueueSize    int    `json:"max_queue_size"`
 		RetainAvailable bool   `json:"retain_available"`
+
+		// WebSocket configuration
+		WebSocket struct {
+			Enabled bool   `json:"enabled"`
+			Host    string `json:"host"`
+			Port    int    `json:"port"`
+			Path    string `json:"path"`
+		} `json:"websocket"`
 	} `json:"mqtt"`
 
 	API struct {
@@ -71,6 +79,12 @@ func DefaultConfig() *Config {
 	cfg.MQTT.AllowAnonymous = false
 	cfg.MQTT.MaxQueueSize = 100
 	cfg.MQTT.RetainAvailable = true
+
+	// WebSocket defaults
+	cfg.MQTT.WebSocket.Enabled = true
+	cfg.MQTT.WebSocket.Host = "0.0.0.0"
+	cfg.MQTT.WebSocket.Port = 9001
+	cfg.MQTT.WebSocket.Path = "/mqtt"
 
 	// API defaults
 	cfg.API.Enabled = true
