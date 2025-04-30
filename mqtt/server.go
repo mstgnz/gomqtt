@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,10 @@ type Server struct {
 	inflightMutex       sync.RWMutex
 	pendingQoS2Messages map[uint16]*PendingQoS2Message // messageID -> message (QoS2 messages waiting for PUBREL)
 	pendingQoS2Mutex    sync.RWMutex
+
+	// Plugin system
+	pluginRegistry      any // Uses any to avoid circular import
+	pluginRegistryMutex sync.RWMutex
 }
 
 // RetainedMessage represents a message that should be stored and sent to new subscribers
@@ -142,6 +147,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 			if clientToRemove.IsConnected {
 				log.Printf("Client %s disconnected unexpectedly, processing Will message", clientID)
 
+				// Trigger disconnect event for plugins
+				s.triggerPluginEvent("client.disconnect", map[string]any{
+					"ClientID":  clientID,
+					"Username":  clientToRemove.Username,
+					"Timestamp": time.Now().Unix(),
+					"Reason":    "unexpected",
+				})
+
 				// Publish the Will message if present
 				if clientToRemove.WillTopic != "" && clientToRemove.ProcessWill() {
 					// Check if the will message should be retained
@@ -210,15 +223,30 @@ func (s *Server) handleConnection(conn net.Conn) {
 			log.Printf("Client disconnected gracefully")
 
 			// Find the client
+			var clientID string
+			var client *Client
+
 			s.clientsMutex.RLock()
-			for _, client := range s.clients {
-				if client.Conn == conn {
+			for id, c := range s.clients {
+				if c.Conn == conn {
+					clientID = id
+					client = c
 					// Graceful disconnect - don't trigger the Will message
 					client.IsConnected = false
 					break
 				}
 			}
 			s.clientsMutex.RUnlock()
+
+			// Trigger plugin event for client disconnection
+			if client != nil {
+				s.triggerPluginEvent("client.disconnect", map[string]any{
+					"ClientID":  clientID,
+					"Username":  client.Username,
+					"Timestamp": time.Now().Unix(),
+					"Reason":    "graceful",
+				})
+			}
 
 			return
 		default:
@@ -271,6 +299,14 @@ func (s *Server) handleConnect(conn net.Conn, packet *Packet) {
 	s.clientsMutex.Unlock()
 
 	log.Printf("Client %s connected and registered\n", clientID)
+
+	// Trigger plugin event for client connection
+	s.triggerPluginEvent("client.connect", map[string]any{
+		"ClientID":   clientID,
+		"Username":   packet.Username,
+		"Timestamp":  time.Now().Unix(),
+		"RemoteAddr": conn.RemoteAddr().String(),
+	})
 }
 
 // handlePublish processes a PUBLISH packet
@@ -280,10 +316,12 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 
 	// Find client ID from connection
 	var clientID string
+	var username string
 	s.clientsMutex.RLock()
 	for id, client := range s.clients {
 		if client.Conn == conn {
 			clientID = id
+			username = client.Username
 			break
 		}
 	}
@@ -293,6 +331,17 @@ func (s *Server) handlePublish(conn net.Conn, packet *Packet) {
 	if packet.Retain {
 		s.storeRetainedMessage(packet.TopicName, packet.Payload, packet.Qos)
 	}
+
+	// Trigger plugin event for message publishing
+	s.triggerPluginEvent("message.publish", map[string]any{
+		"ClientID":  clientID,
+		"Username":  username,
+		"Topic":     packet.TopicName,
+		"Payload":   packet.Payload,
+		"QoS":       packet.Qos,
+		"Retained":  packet.Retain,
+		"Timestamp": time.Now().Unix(),
+	})
 
 	// For QoS2, store the message until we receive PUBREL
 	if packet.Qos == QoS2 {
@@ -694,6 +743,16 @@ func (s *Server) distributeMessage(topic string, payload []byte, qos byte) {
 					} else {
 						log.Printf("Sent PUBLISH to client %s: topic=%s, qos=%d, messageID=%d",
 							subscription.ClientID, topic, effectiveQoS, messageID)
+
+						// Trigger plugin event for message receive
+						s.triggerPluginEvent("message.receive", map[string]any{
+							"ClientID":  subscription.ClientID,
+							"Username":  client.Username,
+							"Topic":     topic,
+							"Payload":   payload,
+							"QoS":       effectiveQoS,
+							"Timestamp": time.Now().Unix(),
+						})
 					}
 				}
 			}
@@ -935,5 +994,48 @@ func (s *Server) storeRetainedMessage(topic string, payload []byte, qos byte) {
 			Modified: time.Now(),
 		}
 		log.Printf("Stored retained message for topic: %s", topic)
+	}
+}
+
+// SetPluginRegistry sets the plugin registry for the server
+func (s *Server) SetPluginRegistry(registry any) {
+	s.pluginRegistryMutex.Lock()
+	defer s.pluginRegistryMutex.Unlock()
+	s.pluginRegistry = registry
+	log.Printf("Plugin registry set for MQTT server")
+}
+
+// triggerPluginEvent triggers a plugin event if a plugin registry is set
+func (s *Server) triggerPluginEvent(event string, context map[string]any) {
+	s.pluginRegistryMutex.RLock()
+	registry := s.pluginRegistry
+	s.pluginRegistryMutex.RUnlock()
+
+	if registry == nil {
+		return
+	}
+
+	// Since we can't directly access the plugin package methods due to circular imports,
+	// we'll use reflection to call the TriggerEvent method
+	// Try to find the TriggerEvent method
+	registryValue := reflect.ValueOf(registry)
+	triggerMethod := registryValue.MethodByName("TriggerEvent")
+
+	if triggerMethod.IsValid() {
+		// Create a context struct that matches what the plugin system expects
+		// We'll define this as a map and let reflect handle it
+		ctxMap := make(map[string]any)
+		ctxMap["Event"] = event
+
+		// Copy the provided context values
+		for k, v := range context {
+			ctxMap[k] = v
+		}
+
+		// Create a new context value
+		ctxValue := reflect.ValueOf(ctxMap)
+
+		// Call the method
+		triggerMethod.Call([]reflect.Value{ctxValue})
 	}
 }

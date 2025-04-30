@@ -14,6 +14,7 @@ import (
 	"github.com/mstgnz/gomqtt/config"
 	"github.com/mstgnz/gomqtt/mqtt"
 	"github.com/mstgnz/gomqtt/plugin"
+	"github.com/mstgnz/gomqtt/plugins/webhook"
 	"github.com/mstgnz/gomqtt/storage"
 )
 
@@ -65,8 +66,15 @@ func main() {
 		log.Printf("Failed to register example plugin: %v", err)
 	}
 
+	// Setup webhook plugin
+	webhook.SetupWebhookPlugin(pluginRegistry)
+	log.Printf("Webhook plugin initialized")
+
 	// Create MQTT server
 	mqttServer := mqtt.NewServer(cfg.MQTT.Host, cfg.MQTT.Port)
+
+	// Set plugin registry for MQTT server
+	mqttServer.SetPluginRegistry(pluginRegistry)
 
 	// Create REST API server
 	apiAddr := fmt.Sprintf("%s:%d", cfg.API.Host, cfg.API.Port)

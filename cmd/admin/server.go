@@ -93,7 +93,7 @@ func (s *Server) loadTemplates() {
 }
 
 // render renders a template with data
-func (s *Server) render(w http.ResponseWriter, name string, data interface{}) {
+func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	tmpl, ok := s.templates[name]
 	if !ok {
 		http.Error(w, "Template not found", http.StatusInternalServerError)
@@ -103,7 +103,7 @@ func (s *Server) render(w http.ResponseWriter, name string, data interface{}) {
 	// Use a struct to pass data with the Active field for navigation highlighting
 	type TemplateData struct {
 		Active string
-		Data   interface{}
+		Data   any
 	}
 
 	templateData := TemplateData{

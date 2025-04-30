@@ -25,7 +25,7 @@ type Context struct {
 	Timestamp  int64
 	QoS        byte
 	Retained   bool
-	Properties map[string]interface{}
+	Properties map[string]any
 }
 
 // Handler is a function that processes events
