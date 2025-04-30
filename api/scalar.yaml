@@ -1,30 +1,935 @@
-title: GoMQTT REST API
-description: API documentation for GoMQTT, a modern MQTT broker
-primaryColor: "#0096FF"
-logo: https://via.placeholder.com/150x150/0096FF/FFFFFF?text=GoMQTT
-specFiles:
-  - id: main
-    name: GoMQTT REST API
-    path: api-docs.yaml
-metadata:
-  version: 1.0.0
-  author: GoMQTT Team
-  website: https://github.com/mstgnz/gomqtt
-navigation:
-  - group: Getting Started
-    items:
-      - title: Introduction
-        content: api-docs.md
-  - group: API Reference
-    items:
-      - title: API Endpoints
-        spec: main
-customization:
-  theme:
-    codeBlock:
-      defaultLanguage: json
-    typography:
-      fontFamily: Inter, system-ui, sans-serif
-  favicon: https://via.placeholder.com/32x32/0096FF/FFFFFF?text=G
-development:
-  port: 8080 
+name: GoMQTT API
+description: GoMQTT API Documentation
+version: 1.0.0
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+
+security:
+  - BearerAuth: []
+
+servers:
+  - name: Development
+    url: http://localhost:8010
+  - name: Production
+    url: https://gomqtt.com/api
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Bring
+    description: Data fetching endpoints
+  - name: Vehicle
+    description: Vehicle management endpoints
+
+paths:
+  /verify:
+    get:
+      tags:
+        - Auth
+      summary: User Verify
+      description: Verifies a user's authentication token
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                code: 200
+                success: true
+                message: Success
+
+  /login:
+    post:
+      tags:
+        - Auth
+      summary: User Login
+      description: Authenticates a user and returns an access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email_or_phone
+                - password
+              properties:
+                email_or_phone:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                      user:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          firstname:
+                            type: string
+                          lastname:
+                            type: string
+                          email:
+                            type: string
+                          phone:
+                            type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  token: eyJhbGciOiJIUzI.eyJpc3MiOiIxIiwiZXhwI.yyMRyoRa1H8sjqwajdVUyK
+                  user:
+                    id: 1
+                    firstname: John
+                    lastname: DOE
+                    email: johndone@gmail.com
+                    phone: "5432222222"
+          x-success:
+            type: bearer
+            property: data.token
+
+  /register:
+    post:
+      tags:
+        - Auth
+      summary: User Registration
+      description: Registers a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - firstname
+                - lastname
+                - email
+                - password
+                - phone
+                - city_id
+                - district_id
+                - town_id
+                - address
+              properties:
+                firstname:
+                  type: string
+                lastname:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                phone:
+                  type: string
+                city_id:
+                  type: integer
+                district_id:
+                  type: integer
+                town_id:
+                  type: integer
+                address:
+                  type: string
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                      user:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          firstname:
+                            type: string
+                          lastname:
+                            type: string
+                          email:
+                            type: string
+                          phone:
+                            type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  token: eyJhbGciOiJIUzI.eyJpc3MiOiIxIiwiZXhwI.yyMRyoRa1H8sjqwajdVUyK
+                  user:
+                    id: 1
+                    firstname: John
+                    lastname: DOE
+                    email: johndone@gmail.com
+                    phone: "5432222222"
+          x-success:
+            type: bearer
+            property: data.token
+
+  /verify-code:
+    post:
+      tags:
+        - Auth
+      summary: User Verify Code
+
+  /forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: User Forgot Password
+
+  /change-password:
+    post:
+      tags:
+        - Auth
+      summary: User Change Password
+
+  /bring/cities:
+    get:
+      tags:
+        - Bring
+      summary: Get Cities
+      description: Returns list of available cities
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/districts:
+    get:
+      tags:
+        - Bring
+      summary: Get Districts
+      description: Returns list of districts in a city
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/towns:
+    get:
+      tags:
+        - Bring
+      summary: Get Towns
+      description: Returns list of towns in a district
+      parameters:
+        - name: district_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/brands:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Brands
+      description: Returns list of vehicle brands for a specific year
+      parameters:
+        - name: year
+          in: query
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/models:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Models
+      description: Returns list of models for a specific brand
+      parameters:
+        - name: brand_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/model-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Model Types
+      description: Returns list of model types for a specific model
+      parameters:
+        - name: model_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/years:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Years
+      description: Returns list of available years
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+  
+  /bring/vehicle/partials:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Partials
+      description: Returns list of available partials
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+  
+  /bring/vehicle/body-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Body Types
+      description: Returns list of available body types
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/fuel-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Fuel Types
+      description: Returns list of available fuel types
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/gear-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Gear Types
+      description: Returns list of available gear types
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/traction-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Traction Types
+      description: Returns list of available traction types
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/appraisal-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Appraisal Types
+      description: Returns list of available appraisal types
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/equipment-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Equipment Types
+      description: Returns list of available equipment types
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /bring/vehicle/technical-types:
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle Technical Types
+      description: Returns list of available technical types
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  - id: 1
+                    name: Ankara
+
+  /vehicle:
+    post:
+      tags:
+        - Vehicle
+      summary: Create Vehicle
+      description: Creates a new vehicle entry
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - category_id
+                - km
+                - plate
+                - chassis
+                - engine_power
+                - engine_capacity
+                - vehicle_fuel_type_id
+                - vehicle_gear_type_id
+                - vehicle_traction_type_id
+                - vehicle_body_type_id
+                - vehicle_model_type_id
+              properties:
+                category_id:
+                  type: integer
+                km:
+                  type: number
+                plate:
+                  type: string
+                chassis:
+                  type: string
+                engine_power:
+                  type: number
+                engine_capacity:
+                  type: number
+                vehicle_fuel_type_id:
+                  type: integer
+                vehicle_gear_type_id:
+                  type: integer
+                vehicle_traction_type_id:
+                  type: integer
+                vehicle_body_type_id:
+                  type: integer
+                vehicle_model_type_id:
+                  type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  id: 1
+                  name: Ankara
+
+  /vehicle/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Vehicle
+      summary: Get Vehicle
+      description: Gets vehicle details by ID
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  id: 1
+                  name: Ankara
+    put:
+      tags:
+        - Vehicle
+      summary: Update Vehicle
+      description: Updates an existing vehicle
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+              example:
+                status: true
+                message: Success
+                data:
+                  id: 1
+                  name: Ankara
+    delete:
+      tags:
+        - Vehicle
+      summary: Delete Vehicle
+      description: Deletes a vehicle
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                  message:
+                    type: string
+              example:
+                status: true
+                message: Success 

@@ -79,11 +79,11 @@ func (s *Server) Stop() error {
 func (s *Server) setupRoutes() {
 	s.Router.Get("/", s.handleHome())
 
+	// Add route for scalar.yaml
+	s.Router.Get("/scalar.yaml", s.handleScalarYAML())
+
 	// Health check endpoint
 	s.Router.Get("/health", s.handleHealthCheck())
-
-	// Scalar API documentation endpoint
-	s.Router.Get("/scalar.yaml", s.handleScalarYaml())
 
 	// API routes
 	s.Router.Route("/api", func(r chi.Router) {
@@ -1435,16 +1435,16 @@ func (s *Server) handleHealthCheck() http.HandlerFunc {
 	}
 }
 
-// handleScalarYaml handles the serving of the scalar.yaml file
-func (s *Server) handleScalarYaml() http.HandlerFunc {
+// handleScalarYAML handles the scalar.yaml endpoint
+func (s *Server) handleScalarYAML() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set the content type to YAML
-		w.Header().Set("Content-Type", "application/x-yaml")
+		w.Header().Set("Content-Type", "application/yaml")
 
 		// Try to read the scalar.yaml file
-		content, err := os.ReadFile("scalar.yaml")
+		content, err := os.ReadFile("api/scalar.yaml")
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read Scalar YAML file: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("Failed to read API documentation: %v", err), http.StatusInternalServerError)
 			return
 		}
 
