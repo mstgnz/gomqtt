@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -1179,64 +1180,121 @@ func (s *Server) distributeMessage(topic string, payload []byte, qos byte) {
 	s.subMutex.RLock()
 	defer s.subMutex.RUnlock()
 
+	// Group subscriptions by shared subscription groups
+	// Map of shareGroup -> subTopic -> []*Subscription
+	sharedSubs := make(map[string]map[string][]*Subscription)
+
 	// Find matching subscriptions using topic matching
 	for subTopic, subscriptions := range s.subscriptions {
 		if topicMatches(subTopic, topic) {
+			// Group shared subscriptions for later processing
+			regularSubs := make([]*Subscription, 0)
+
 			for _, subscription := range subscriptions {
-				// Find the client
-				s.clientsMutex.RLock()
-				client, ok := s.clients[subscription.ClientID]
-				s.clientsMutex.RUnlock()
-
-				if ok && client.IsConnected {
-					// Choose the lower QoS between subscription QoS and publish QoS
-					effectiveQoS := qos
-					if subscription.QoS < qos {
-						effectiveQoS = subscription.QoS
+				if subscription.IsShared {
+					// Initialize maps if needed
+					if _, ok := sharedSubs[subscription.ShareGroup]; !ok {
+						sharedSubs[subscription.ShareGroup] = make(map[string][]*Subscription)
 					}
 
-					// Generate message ID for QoS > 0
-					var messageID uint16 = 0
-					if effectiveQoS > 0 {
-						messageID = s.generateMessageID(client.ID)
-					}
-
-					// Create PUBLISH packet
-					publish := NewPublishPacket(topic, payload, effectiveQoS, messageID, false, false)
-					publishBytes, err := publish.Encode()
-					if err != nil {
-						log.Printf("Error encoding PUBLISH for client %s: %v\n",
-							subscription.ClientID, err)
-						continue
-					}
-
-					// For QoS1 and QoS2, store the message as in-flight
-					if effectiveQoS > 0 {
-						s.storeInflightMessage(client.ID, messageID, topic, payload, effectiveQoS)
-					}
-
-					// Send to client
-					_, err = client.Conn.Write(publishBytes)
-					if err != nil {
-						log.Printf("Error sending PUBLISH to client %s: %v\n",
-							subscription.ClientID, err)
-					} else {
-						log.Printf("Sent PUBLISH to client %s: topic=%s, qos=%d, messageID=%d",
-							subscription.ClientID, topic, effectiveQoS, messageID)
-
-						// Trigger plugin event for message receive
-						s.triggerPluginEvent("message.receive", map[string]any{
-							"ClientID":  subscription.ClientID,
-							"Username":  client.Username,
-							"Topic":     topic,
-							"Payload":   payload,
-							"QoS":       effectiveQoS,
-							"Timestamp": time.Now().Unix(),
-						})
-					}
+					// Add to shared subscriptions map
+					sharedSubs[subscription.ShareGroup][subTopic] = append(
+						sharedSubs[subscription.ShareGroup][subTopic],
+						subscription,
+					)
+				} else {
+					// Regular subscription
+					regularSubs = append(regularSubs, subscription)
 				}
 			}
+
+			// Process regular subscriptions immediately
+			for _, subscription := range regularSubs {
+				s.deliverMessageToSubscriber(subscription, topic, payload, qos)
+			}
 		}
+	}
+
+	// Process shared subscriptions - one client per share group gets the message
+	for shareGroup, topicMap := range sharedSubs {
+		for subTopic, subscriptions := range topicMap {
+			// Skip empty subscription lists
+			if len(subscriptions) == 0 {
+				continue
+			}
+
+			// Randomly select one subscriber from the share group
+			// This is a simple round-robin approach, but could be extended with more sophisticated strategies
+			selectedIndex := rand.Intn(len(subscriptions))
+			selectedSub := subscriptions[selectedIndex]
+
+			log.Printf("Selected subscriber %s from share group %s for topic %s",
+				selectedSub.ClientID, shareGroup, subTopic)
+
+			// Deliver to the selected subscriber
+			s.deliverMessageToSubscriber(selectedSub, topic, payload, qos)
+		}
+	}
+}
+
+// deliverMessageToSubscriber delivers a message to a specific subscriber
+func (s *Server) deliverMessageToSubscriber(subscription *Subscription, topic string, payload []byte, qos byte) {
+	// Find the client
+	s.clientsMutex.RLock()
+	client, ok := s.clients[subscription.ClientID]
+	s.clientsMutex.RUnlock()
+
+	if !ok || !client.IsConnected {
+		return
+	}
+
+	// Skip if NoLocal is true and this client published the message
+	// This would require passing the source client ID to this function for complete implementation
+
+	// Choose the lower QoS between subscription QoS and publish QoS
+	effectiveQoS := qos
+	if subscription.QoS < qos {
+		effectiveQoS = subscription.QoS
+	}
+
+	// Generate message ID for QoS > 0
+	var messageID uint16 = 0
+	if effectiveQoS > 0 {
+		messageID = s.generateMessageID(client.ID)
+	}
+
+	// Create PUBLISH packet
+	publish := NewPublishPacket(topic, payload, effectiveQoS, messageID, false, false)
+	publishBytes, err := publish.Encode()
+	if err != nil {
+		log.Printf("Error encoding PUBLISH for client %s: %v\n",
+			subscription.ClientID, err)
+		return
+	}
+
+	// For QoS1 and QoS2, store the message as in-flight
+	if effectiveQoS > 0 {
+		s.storeInflightMessage(client.ID, messageID, topic, payload, effectiveQoS)
+	}
+
+	// Send to client
+	_, err = client.Conn.Write(publishBytes)
+	if err != nil {
+		log.Printf("Error sending PUBLISH to client %s: %v\n",
+			subscription.ClientID, err)
+	} else {
+		log.Printf("Sent PUBLISH to client %s: topic=%s, qos=%d, messageID=%d",
+			subscription.ClientID, topic, effectiveQoS, messageID)
+
+		// Trigger plugin event for message receive
+		s.triggerPluginEvent("message.receive", map[string]any{
+			"ClientID":  subscription.ClientID,
+			"Username":  client.Username,
+			"Topic":     topic,
+			"Payload":   payload,
+			"QoS":       effectiveQoS,
+			"Timestamp": time.Now().Unix(),
+		})
 	}
 }
 
@@ -1323,6 +1381,24 @@ func topicMatches(subTopic, pubTopic string) bool {
 	// Quick check for exact match
 	if subTopic == pubTopic {
 		return true
+	}
+
+	// Handle shared subscription format - extract the actual topic pattern
+	// Format: $share/{share_name}/{topic}
+	if strings.HasPrefix(subTopic, "$share/") {
+		parts := strings.SplitN(subTopic, "/", 3)
+		if len(parts) >= 3 {
+			// Use the actual topic filter for matching
+			subTopic = parts[2]
+
+			// Check again for exact match after extracting real topic
+			if subTopic == pubTopic {
+				return true
+			}
+		} else {
+			// Invalid shared subscription format
+			return false
+		}
 	}
 
 	// Split topics into segments

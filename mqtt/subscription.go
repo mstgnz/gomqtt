@@ -25,10 +25,27 @@ type Subscription struct {
 	RetainAsPublished bool // Keep RETAIN flag on forwarded messages
 	RetainHandling    byte // Handling of retained messages (0=send, 1=send if new, 2=don't send)
 	SubscriptionID    int  // Identifier for the subscription
+
+	// Shared subscription fields
+	IsShared   bool   // Whether this is a shared subscription
+	ShareGroup string // The share group name (if shared subscription)
 }
 
 // NewSubscription creates a new subscription
 func NewSubscription(topic string, qos byte, clientID string) *Subscription {
+	// Check if this is a shared subscription
+	isShared := false
+	shareGroup := ""
+
+	if strings.HasPrefix(topic, "$share/") {
+		parts := strings.SplitN(topic, "/", 3)
+		if len(parts) >= 3 {
+			isShared = true
+			shareGroup = parts[1]
+			// Don't modify the topic here since we need to keep it for subscription indexing
+		}
+	}
+
 	return &Subscription{
 		Topic:             topic,
 		QoS:               qos,
@@ -38,6 +55,8 @@ func NewSubscription(topic string, qos byte, clientID string) *Subscription {
 		RetainAsPublished: false,
 		RetainHandling:    0,
 		SubscriptionID:    0,
+		IsShared:          isShared,
+		ShareGroup:        shareGroup,
 	}
 }
 

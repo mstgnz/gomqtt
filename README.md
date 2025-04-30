@@ -84,7 +84,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 
 - [x] Full MQTT v5.0 support
 - [ ] Clustering support
-- [ ] Shared subscriptions
+- [x] Shared subscriptions
 - [ ] Bridge mode
 - [ ] Packet filtering
 - [ ] Rate limiting
