@@ -16,8 +16,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/mstgnz/gomqtt/auth"
+	"github.com/mstgnz/gomqtt/mqtt"
 	"github.com/mstgnz/gomqtt/storage"
 )
+
+// mqttBroker is the narrow subset of the MQTT server the API depends on.
+// Declaring it here (instead of importing the concrete *mqtt.Server everywhere)
+// keeps the handlers testable with a fake broker and follows interface
+// segregation: the API only needs to publish and inspect connected clients.
+type mqttBroker interface {
+	PublishMessage(publisherID, topic string, payload []byte, qos byte, retained bool)
+	ListClients() []mqtt.ConnectedClient
+}
 
 // Define a custom type for context keys to avoid collisions
 type contextKey string
@@ -263,12 +273,17 @@ func (s *Server) handleLogin() http.HandlerFunc {
 	}
 }
 
-// handleListClients handles the clients endpoint
+// handleListClients returns the list of currently connected MQTT clients.
 func (s *Server) handleListClients() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Implementation will go here
+		broker, ok := s.MQTTServer.(mqttBroker)
+		if !ok {
+			http.Error(w, "MQTT broker is not available", http.StatusServiceUnavailable)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(broker.ListClients())
 	}
 }
 
@@ -293,12 +308,46 @@ func (s *Server) handleGetClient() http.HandlerFunc {
 	}
 }
 
-// handleListMessages handles the messages endpoint
+// handleListMessages returns recent persisted messages, optionally filtered by
+// topic or client and paginated via limit/offset query parameters.
 func (s *Server) handleListMessages() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Implementation will go here
+		if s.Storage == nil {
+			http.Error(w, "Storage is not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		query := storage.MessageQuery{
+			Topic:    r.URL.Query().Get("topic"),
+			ClientID: r.URL.Query().Get("client_id"),
+		}
+
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			limit, err := strconv.Atoi(limitStr)
+			if err != nil {
+				http.Error(w, "Invalid limit parameter", http.StatusBadRequest)
+				return
+			}
+			query.Limit = limit
+		}
+
+		if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+			offset, err := strconv.Atoi(offsetStr)
+			if err != nil {
+				http.Error(w, "Invalid offset parameter", http.StatusBadRequest)
+				return
+			}
+			query.Offset = offset
+		}
+
+		result, err := s.Storage.GetMessages(query)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve messages: %v", err), http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(result)
 	}
 }
 
@@ -348,8 +397,18 @@ func (s *Server) handlePublish() http.HandlerFunc {
 			"username": username,
 		}
 
-		// TODO: Publish message to MQTT broker
-		// In a real implementation, this would call the MQTT broker's Publish method
+		// Publish the message to the MQTT broker so subscribers actually receive it.
+		broker, ok := s.MQTTServer.(mqttBroker)
+		if !ok {
+			http.Error(w, "MQTT broker is not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		publisherID := username
+		if publisherID == "" {
+			publisherID = "api"
+		}
+		broker.PublishMessage(publisherID, req.Topic, []byte(req.Payload), byte(req.QoS), req.Retained)
 
 		// Log the publish action
 		s.logAction(r, "publish", "message", req.Topic, details)

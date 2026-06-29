@@ -5,7 +5,7 @@ This package defines a Storage interface that abstracts various storage backends
 concrete implementations for:
 
   - PostgreSQL: Robust relational database storage with SQL queries
-  - Redis: In-memory data store with persistence for high-performance scenarios
+  - MySQL: Relational database storage with SQL queries
 
 The storage system handles:
 
@@ -57,15 +57,15 @@ The PostgreSQL implementation provides:
   - Automatic cleanup of expired messages
   - Schema migration support
 
-# Redis Storage
+# MySQL Storage
 
-The Redis implementation provides:
+The MySQL implementation provides:
 
-  - High-performance in-memory storage with persistence
-  - Pub/Sub capabilities for message distribution
-  - Key expiration for automatic message cleanup
-  - Atomic operations for distributed environments
-  - Pipeline support for batch operations
+  - SQL queries for message storage and retrieval
+  - Transaction support for batch operations
+  - Indexes for fast lookups
+  - Automatic cleanup of expired messages
+  - Schema migration support
 
 # Message Retention
 
@@ -104,12 +104,12 @@ Using PostgreSQL storage:
 	    log.Printf("Failed to store message: %v", err)
 	}
 
-Using Redis storage:
+Using MySQL storage:
 
-	// Connect to Redis
-	store, err := storage.NewRedisStorage("redis://localhost:6379/0", "mqtt:")
+	// Connect to MySQL
+	store, err := storage.NewMySQLStorage("user:password@tcp(localhost:3306)/mqtt?parseTime=true")
 	if err != nil {
-	    log.Fatalf("Failed to connect to Redis: %v", err)
+	    log.Fatalf("Failed to connect to MySQL: %v", err)
 	}
 	defer store.Close()
 

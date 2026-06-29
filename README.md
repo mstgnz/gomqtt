@@ -68,7 +68,7 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 ### Database & Storage
 
 - PostgreSQL message persistence
-- Redis support
+- MySQL message persistence
 - Scalable batch operations
 - Message history API
 - Automatic message cleanup
@@ -94,12 +94,14 @@ GoMQTT is a **lightweight**, **high-performance**, and **modern** MQTT broker de
 
 ### Clustering
 
-- Multi-node deployment
-- High availability
-- Load balancing
-- Automatic node discovery
-- State synchronization
-- Shared subscriptions
+GoMQTT uses [HashiCorp memberlist](https://github.com/hashicorp/memberlist) gossip for node membership. The following are implemented today:
+
+- Automatic node discovery (gossip-based membership)
+- Subscription state synchronization across nodes
+- Retained-message synchronization across nodes
+- Shared subscriptions (within a node)
+
+> **Status / roadmap:** cross-node *live* message routing (forwarding a PUBLISH from one node to subscribers connected to another node) is not wired yet, so a multi-node deployment does not currently behave as a single logical broker for live traffic. Full multi-node message forwarding, load balancing, and HA failover are on the roadmap. Run as a single node for production message delivery until this lands.
 
 ### Plugin System
 

@@ -1779,6 +1779,92 @@ func (s *Server) StoreRetainedMessage(topic string, payload []byte, qos byte) {
 	s.storeRetainedMessage(topic, payload, qos)
 }
 
+// ConnectedClient is a serializable snapshot of a currently connected client.
+// It is used by the REST API and admin panel to expose live connection state
+// without leaking the internal *Client (which holds the raw net.Conn).
+type ConnectedClient struct {
+	ID              string    `json:"id"`
+	Username        string    `json:"username"`
+	ConnectedAt     time.Time `json:"connected_at"`
+	LastSeen        time.Time `json:"last_seen"`
+	Subscriptions   int       `json:"subscriptions"`
+	ProtocolVersion byte      `json:"protocol_version"`
+	IsConnected     bool      `json:"is_connected"`
+}
+
+// ListClients returns a snapshot of all currently connected clients.
+func (s *Server) ListClients() []ConnectedClient {
+	s.clientsMutex.RLock()
+	defer s.clientsMutex.RUnlock()
+
+	out := make([]ConnectedClient, 0, len(s.clients))
+	for _, c := range s.clients {
+		c.subMutex.RLock()
+		subCount := len(c.Subscriptions)
+		c.subMutex.RUnlock()
+
+		out = append(out, ConnectedClient{
+			ID:              c.ID,
+			Username:        c.Username,
+			ConnectedAt:     c.ConnTime,
+			LastSeen:        c.LastSeen,
+			Subscriptions:   subCount,
+			ProtocolVersion: c.ProtocolVersion,
+			IsConnected:     c.IsConnected,
+		})
+	}
+	return out
+}
+
+// ClientCount returns the number of currently connected clients.
+func (s *Server) ClientCount() int {
+	s.clientsMutex.RLock()
+	defer s.clientsMutex.RUnlock()
+	return len(s.clients)
+}
+
+// SubscriptionCount returns the total number of active subscriptions across all topics.
+func (s *Server) SubscriptionCount() int {
+	s.subMutex.RLock()
+	defer s.subMutex.RUnlock()
+
+	total := 0
+	for _, subs := range s.subscriptions {
+		total += len(subs)
+	}
+	return total
+}
+
+// RetainedMessageCount returns the number of retained messages currently held.
+func (s *Server) RetainedMessageCount() int {
+	s.retainedMessagesMutex.RLock()
+	defer s.retainedMessagesMutex.RUnlock()
+	return len(s.retainedMessages)
+}
+
+// PublishMessage injects a message into the broker from a server-side caller
+// (REST API, plugins, schedulers). It mirrors the QoS-0 path of a client
+// PUBLISH: it stores the retained copy if requested, persists the message when
+// storage is enabled, and distributes it to all matching subscribers. The
+// publisherID is recorded for persistence/auditing (e.g. "api").
+func (s *Server) PublishMessage(publisherID, topic string, payload []byte, qos byte, retained bool) {
+	if retained {
+		s.storeRetainedMessage(topic, payload, qos)
+	}
+
+	s.persistMessage(publisherID, topic, payload, qos, retained)
+	s.distributeMessage(topic, payload, qos)
+
+	s.triggerPluginEvent("message.published", map[string]any{
+		"ClientID":  publisherID,
+		"Topic":     topic,
+		"QoS":       qos,
+		"Retained":  retained,
+		"Timestamp": time.Now().Unix(),
+		"Size":      len(payload),
+	})
+}
+
 // GetRetainedMessages iterates through all retained messages and calls the callback function for each one
 // The callback should return true to continue iteration or false to stop
 func (s *Server) GetRetainedMessages(callback func(topic string, payload []byte, qos byte) bool) {

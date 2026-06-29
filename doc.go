@@ -1,5 +1,5 @@
 /*
-Package main implements a lightweight, high-performance, and modern MQTT broker designed for IoT and edge devices.
+Package gomqtt is the documentation root for GoMQTT, a lightweight, high-performance, and modern MQTT broker designed for IoT and edge devices.
 
 GoMQTT is a complete MQTT broker implementation supporting both MQTT v3.1.1 and v5.0 protocols.
 It's designed with performance, security, and extensibility in mind, making it suitable for
@@ -19,8 +19,8 @@ IoT applications of various scales - from small edge deployments to large distri
   - Authentication with JWT, OAuth2, mTLS
   - Role-Based Access Control (RBAC)
   - Plugin system for extensibility
-  - Message storage with PostgreSQL or Redis
-  - Clustering support for high-availability
+  - Message storage with PostgreSQL or MySQL
+  - Clustering: gossip membership with subscription/retained state sync (live cross-node message routing is on the roadmap)
   - Rate limiting and connection throttling
   - Prometheus metrics integration
 
@@ -33,7 +33,7 @@ IoT applications of various scales - from small edge deployments to large distri
   - config: Configuration loading and management
   - plugin: Extensible plugin system
   - metrics: Prometheus metrics for monitoring
-  - web: Admin web interface
+  - admin: Admin web interface
   - cmd: Command line tools and server entry points
   - rate: Connection and message rate limiting
 
@@ -89,4 +89,4 @@ GoMQTT provides multiple security mechanisms:
 GoMQTT can be configured via a JSON configuration file or environment variables.
 See the config package for detailed configuration options.
 */
-package main
+package gomqtt

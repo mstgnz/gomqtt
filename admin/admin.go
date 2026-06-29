@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,7 @@ type Server struct {
 	templates   map[string]*template.Template
 	httpServer  *http.Server
 	mqttServer  *mqtt.Server
+	startTime   time.Time
 }
 
 // NewServer creates a new admin panel server with the specified configuration.
@@ -51,6 +53,7 @@ func NewServer(listenAddr, templateDir string, storage storage.Storage, mqttServ
 		TemplateDir: templateDir,
 		templates:   make(map[string]*template.Template),
 		mqttServer:  mqttServer,
+		startTime:   time.Now(),
 	}
 
 	// Setup middleware
@@ -182,11 +185,9 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 		Data:   data,
 	}
 
-	// If rendering dashboard, include stats data
+	// If rendering dashboard, include live stats data
 	if name == "dashboard" {
-		// Get mock stats data (in production, this would come from real sources)
-		stats := s.generateDashboardStats()
-		templateData.Stats = stats
+		templateData.Stats = s.buildDashboardStats()
 	}
 
 	if err := tmpl.ExecuteTemplate(w, "layout.html", templateData); err != nil {
@@ -194,36 +195,86 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-// generateDashboardStats creates sample dashboard stats
-// In a real implementation, this would fetch actual data
-func (s *Server) generateDashboardStats() *DashboardStats {
-	activeConnections := 250  // Placeholder for s.mqttServer.GetClientCount()
-	messagesPerSecond := 75.5 // Placeholder for s.mqttServer.GetMessageRate()
-
-	return &DashboardStats{
-		ActiveConnections:   activeConnections,
-		TotalConnections:    activeConnections + 1000,
-		MessagesPerSecond:   messagesPerSecond,
-		TotalMessages:       10000,
-		ActiveSubscriptions: 500,
-		TotalSubscriptions:  2000,
-		CpuUsage:            getCPUUsage(),
-		MemoryUsage:         getMemoryUsage(),
-		ConnectionsByCountry: map[string]int{
-			"US": 120,
-			"DE": 85,
-			"CN": 65,
-			"IN": 45,
-			"BR": 35,
-		},
-		TopTopics: []TopicStats{
-			{Topic: "sensors/temperature", Messages: 5420, TrendValue: 1.2},
-			{Topic: "devices/lighting", Messages: 3210, TrendValue: 0.8},
-			{Topic: "home/security", Messages: 1850, TrendValue: -0.3},
-			{Topic: "weather/forecast", Messages: 1200, TrendValue: 0.5},
-		},
-		QosDistribution: [3]int{6500, 3200, 300}, // QoS 0, 1, 2
+// buildDashboardStats assembles dashboard statistics from live broker state and
+// the storage layer. Values that the broker does not yet track (per-country
+// geo, message-flow graph, connection rate) are returned empty rather than
+// fabricated, so the dashboard always reflects real data.
+func (s *Server) buildDashboardStats() *DashboardStats {
+	stats := &DashboardStats{
+		CpuUsage:             getCPUUsage(),
+		MemoryUsage:          getMemoryUsage(),
+		ConnectionsByCountry: map[string]int{},
+		TopTopics:            []TopicStats{},
+		MessageFlow:          []MessageFlow{},
+		TopicActivity:        map[string]int{},
 	}
+
+	if s.mqttServer != nil {
+		stats.ActiveConnections = s.mqttServer.ClientCount()
+		stats.ActiveSubscriptions = s.mqttServer.SubscriptionCount()
+		stats.TotalSubscriptions = stats.ActiveSubscriptions
+		stats.TotalConnections = stats.ActiveConnections
+	}
+
+	if s.Storage != nil {
+		// Sample the most recent messages to derive topic activity and a QoS
+		// breakdown. TotalMessages comes from the storage count, not the sample.
+		if page, err := s.Storage.GetMessages(storage.MessageQuery{Limit: 200}); err == nil {
+			stats.TotalMessages = page.TotalCount
+
+			topicCounts := map[string]int{}
+			for _, m := range page.Messages {
+				topicCounts[m.Topic]++
+				if m.QoS < 3 {
+					stats.QosDistribution[m.QoS]++
+				}
+			}
+			stats.TopicActivity = topicCounts
+			stats.TopTopics = topTopicsFromCounts(topicCounts, 5)
+			stats.TopicHierarchy = buildTopicHierarchy(topicCounts)
+		}
+	}
+
+	return stats
+}
+
+// topTopicsFromCounts returns the top-n topics by message count, sorted descending.
+func topTopicsFromCounts(counts map[string]int, n int) []TopicStats {
+	topics := make([]TopicStats, 0, len(counts))
+	for topic, count := range counts {
+		topics = append(topics, TopicStats{Topic: topic, Messages: count})
+	}
+	sort.Slice(topics, func(i, j int) bool {
+		return topics[i].Messages > topics[j].Messages
+	})
+	if n > 0 && len(topics) > n {
+		topics = topics[:n]
+	}
+	return topics
+}
+
+// buildTopicHierarchy builds a topic tree from observed topic strings, grouping
+// by their slash-separated levels. The returned root aggregates the total count.
+func buildTopicHierarchy(counts map[string]int) TopicNode {
+	root := TopicNode{Name: "root", Children: []TopicNode{}}
+	// index of child name -> position in root.Children for quick lookup
+	idx := map[string]int{}
+
+	for topic, count := range counts {
+		root.Count += count
+		level := strings.SplitN(topic, "/", 2)
+		head := level[0]
+		if head == "" {
+			head = "/"
+		}
+		if pos, ok := idx[head]; ok {
+			root.Children[pos].Count += count
+		} else {
+			idx[head] = len(root.Children)
+			root.Children = append(root.Children, TopicNode{Name: head, Count: count, Children: []TopicNode{}})
+		}
+	}
+	return root
 }
 
 // DashboardData contains the statistics and information displayed
@@ -290,14 +341,29 @@ type TopicNode struct {
 // The dashboard shows an overview of broker statistics.
 func (s *Server) handleDashboard() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Get actual data from storage
 		data := DashboardData{
-			ActiveClients:  0,
-			MessageCount:   0,
 			TopTopics:      []TopicStats{},
 			RecentMessages: []MessageData{},
-			ServerUptime:   "0h 0m 0s",
-			ConnectedSince: "Not connected",
+			ServerUptime:   formatUptime(time.Since(s.startTime)),
+			ConnectedSince: s.startTime.Format("2006-01-02 15:04:05"),
+		}
+
+		if s.mqttServer != nil {
+			data.ActiveClients = s.mqttServer.ClientCount()
+		}
+
+		if s.Storage != nil {
+			if page, err := s.Storage.GetMessages(storage.MessageQuery{Limit: 10}); err == nil {
+				data.MessageCount = page.TotalCount
+				for _, m := range page.Messages {
+					data.RecentMessages = append(data.RecentMessages, MessageData{
+						Topic:     m.Topic,
+						ClientID:  m.ClientID,
+						Timestamp: m.Timestamp.Format("2006-01-02 15:04:05"),
+						Size:      len(m.Payload),
+					})
+				}
+			}
 		}
 
 		s.render(w, "dashboard", data)
@@ -308,8 +374,11 @@ func (s *Server) handleDashboard() http.HandlerFunc {
 // This page displays information about connected MQTT clients.
 func (s *Server) handleClients() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Implementation will come later
-		s.render(w, "clients", nil)
+		var clients []mqtt.ConnectedClient
+		if s.mqttServer != nil {
+			clients = s.mqttServer.ListClients()
+		}
+		s.render(w, "clients", clients)
 	}
 }
 
@@ -317,8 +386,13 @@ func (s *Server) handleClients() http.HandlerFunc {
 // This page displays information about MQTT messages passing through the broker.
 func (s *Server) handleMessages() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Implementation will come later
-		s.render(w, "messages", nil)
+		var messages []storage.Message
+		if s.Storage != nil {
+			if page, err := s.Storage.GetMessages(storage.MessageQuery{Limit: 100}); err == nil {
+				messages = page.Messages
+			}
+		}
+		s.render(w, "messages", messages)
 	}
 }
 
@@ -348,97 +422,43 @@ func (s *Server) handleHealthCheck() http.HandlerFunc {
 	}
 }
 
-// handleDashboardStats returns all dashboard statistics
+// handleDashboardStats returns all dashboard statistics derived from live
+// broker state and the storage layer.
 func (s *Server) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
-	// Get server stats
-	// In a real implementation, these would come from actual MQTT server methods
-	// For now, using dummy values since these methods don't exist
-	activeConnections := 250  // Placeholder for s.mqttServer.GetClientCount()
-	messagesPerSecond := 75.5 // Placeholder for s.mqttServer.GetMessageRate()
-
-	// Create a sample statistics object
-	// In a real implementation, these would come from the MQTT server
-	stats := DashboardStats{
-		ActiveConnections:   activeConnections,
-		TotalConnections:    activeConnections + 1000, // Sample data
-		MessagesPerSecond:   messagesPerSecond,
-		TotalMessages:       10000, // Sample data
-		ActiveSubscriptions: 500,   // Sample data
-		TotalSubscriptions:  2000,  // Sample data
-		CpuUsage:            getCPUUsage(),
-		MemoryUsage:         getMemoryUsage(),
-		ConnectionsByCountry: map[string]int{
-			"US": 120,
-			"DE": 85,
-			"CN": 65,
-			"IN": 45,
-			"BR": 35,
-		},
-		TopTopics: []TopicStats{
-			{Topic: "sensors/temperature", Messages: 5420, TrendValue: 1.2},
-			{Topic: "devices/lighting", Messages: 3210, TrendValue: 0.8},
-			{Topic: "home/security", Messages: 1850, TrendValue: -0.3},
-			{Topic: "weather/forecast", Messages: 1200, TrendValue: 0.5},
-		},
-		QosDistribution: [3]int{6500, 3200, 300}, // QoS 0, 1, 2
-	}
-
-	// Generate sample message flow data
-	stats.MessageFlow = generateSampleMessageFlow()
-
-	// Generate sample topic activity data
-	stats.TopicActivity = generateSampleTopicActivity()
-
-	// Generate sample topic hierarchy
-	stats.TopicHierarchy = generateSampleTopicHierarchy()
-
-	// Return JSON response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	json.NewEncoder(w).Encode(s.buildDashboardStats())
 }
 
-// handleMessageFlow returns real-time message flow data
+// handleMessageFlow returns message flow edges. Per-message source/destination
+// tracking is not yet recorded by the broker, so this returns an empty set
+// rather than fabricated edges.
 func (s *Server) handleMessageFlow(w http.ResponseWriter, r *http.Request) {
-	// In a real implementation, this would fetch actual message flow data
-	flow := generateSampleMessageFlow()
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(flow)
+	json.NewEncoder(w).Encode([]MessageFlow{})
 }
 
-// handleTopicTree returns the topic hierarchy tree
+// handleTopicTree returns the topic hierarchy tree built from persisted messages.
 func (s *Server) handleTopicTree(w http.ResponseWriter, r *http.Request) {
-	// In a real implementation, this would build the actual topic tree
-	tree := generateSampleTopicHierarchy()
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tree)
+	json.NewEncoder(w).Encode(s.buildDashboardStats().TopicHierarchy)
 }
 
-// handleTopicHeatmap returns data for the topic activity heatmap
+// handleTopicHeatmap returns per-topic activity counts from persisted messages.
 func (s *Server) handleTopicHeatmap(w http.ResponseWriter, r *http.Request) {
-	// In a real implementation, this would return actual topic activity
-	heatmap := generateSampleTopicActivity()
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(heatmap)
+	json.NewEncoder(w).Encode(s.buildDashboardStats().TopicActivity)
 }
 
-// handleConnectionMap returns client connection geographical data
+// handleConnectionMap returns client connection geographical data. The broker
+// does not perform IP geolocation, so an empty location set is returned rather
+// than fabricated coordinates.
 func (s *Server) handleConnectionMap(w http.ResponseWriter, r *http.Request) {
-	// In a real implementation, this would retrieve actual connection locations
 	connections := map[string][]struct {
 		Lat   float64 `json:"lat"`
 		Lon   float64 `json:"lon"`
 		Count int     `json:"count"`
 	}{
-		"locations": {
-			{Lat: 40.7128, Lon: -74.0060, Count: 25},  // New York
-			{Lat: 51.5074, Lon: -0.1278, Count: 18},   // London
-			{Lat: 35.6762, Lon: 139.6503, Count: 15},  // Tokyo
-			{Lat: 37.7749, Lon: -122.4194, Count: 12}, // San Francisco
-			{Lat: 55.7558, Lon: 37.6173, Count: 10},   // Moscow
-		},
+		"locations": {},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -690,79 +710,11 @@ func getMemoryUsage() float64 {
 	return float64(m.Alloc) / 1024 / 1024
 }
 
-// Sample data generators
-func generateSampleMessageFlow() []MessageFlow {
-	now := time.Now()
-
-	return []MessageFlow{
-		{Source: "client1", Destination: "client2", Topic: "sensors/temperature", Timestamp: now.Add(-1 * time.Second), Size: 24},
-		{Source: "client3", Destination: "client4", Topic: "devices/lighting", Timestamp: now.Add(-2 * time.Second), Size: 16},
-		{Source: "client5", Destination: "client1", Topic: "home/security", Timestamp: now.Add(-3 * time.Second), Size: 32},
-		{Source: "client2", Destination: "client5", Topic: "weather/forecast", Timestamp: now.Add(-4 * time.Second), Size: 48},
-		{Source: "client4", Destination: "client3", Topic: "sensors/humidity", Timestamp: now.Add(-5 * time.Second), Size: 20},
-	}
-}
-
-func generateSampleTopicActivity() map[string]int {
-	return map[string]int{
-		"sensors/temperature": 120,
-		"sensors/humidity":    85,
-		"devices/lighting":    95,
-		"home/security":       65,
-		"weather/forecast":    45,
-		"system/logs":         30,
-		"users/presence":      25,
-	}
-}
-
-func generateSampleTopicHierarchy() TopicNode {
-	return TopicNode{
-		Name:  "root",
-		Count: 460,
-		Children: []TopicNode{
-			{
-				Name:  "sensors",
-				Count: 205,
-				Children: []TopicNode{
-					{Name: "temperature", Count: 120},
-					{Name: "humidity", Count: 85},
-				},
-			},
-			{
-				Name:  "devices",
-				Count: 95,
-				Children: []TopicNode{
-					{Name: "lighting", Count: 95},
-				},
-			},
-			{
-				Name:  "home",
-				Count: 65,
-				Children: []TopicNode{
-					{Name: "security", Count: 65},
-				},
-			},
-			{
-				Name:  "weather",
-				Count: 45,
-				Children: []TopicNode{
-					{Name: "forecast", Count: 45},
-				},
-			},
-			{
-				Name:  "system",
-				Count: 30,
-				Children: []TopicNode{
-					{Name: "logs", Count: 30},
-				},
-			},
-			{
-				Name:  "users",
-				Count: 25,
-				Children: []TopicNode{
-					{Name: "presence", Count: 25},
-				},
-			},
-		},
-	}
+// formatUptime renders a duration as a compact "Xh Ym Zs" uptime string.
+func formatUptime(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	sec := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dh %dm %ds", h, m, sec)
 }
